@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -12,14 +13,12 @@ import {
   View,
 } from 'react-native';
 
+import { getAiConfig, saveAiConfig } from './utils/ai';
+
 // ==================== 配置区 ====================
-// Key 不再写死在代码里，改为从环境变量读取。
-// 本地开发：在项目根目录建一个 .env 文件，写一行
-//   EXPO_PUBLIC_DEEPSEEK_API_KEY=你的Key
-// .env 已被 .gitignore 忽略，不会提交到仓库。
-// 导出以便 utils/ai.ts 复用同一个 Key，避免在多处重复硬编码
-export const DEEPSEEK_API_KEY = process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY ?? '';
-const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+// API Key 不写死在代码里：每个人在 App 内点「⚙️ 设置」填自己的 Key，
+// 只保存在自己的浏览器/手机本地，不会上传，也不会进仓库。
+// 本地开发也可以放一个 .env（EXPO_PUBLIC_DEEPSEEK_API_KEY=...），.env 不会被提交。
 // ===============================================
 
 interface Message {
@@ -126,14 +125,18 @@ async function loadContext(): Promise<string> {
 }
 
 async function callDeepSeek(messages: { role: string; content: string }[]): Promise<string> {
-  const response = await fetch(API_URL, {
+  const cfg = await getAiConfig();
+  if (!cfg.apiKey) {
+    throw new Error('还没有配置 API Key。点右上角「⚙️ 设置」填入你自己的 DeepSeek API Key 就能用了。');
+  }
+  const response = await fetch(cfg.apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+      'Authorization': `Bearer ${cfg.apiKey}`,
     },
     body: JSON.stringify({
-      model: 'deepseek-chat',
+      model: cfg.model,
       messages,
       temperature: 0.7,
       max_tokens: 4000,
@@ -153,6 +156,9 @@ export default function AIScreen() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [keyDraft, setKeyDraft] = useState('');
+  const [hasKey, setHasKey] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -190,6 +196,25 @@ export default function AIScreen() {
       await AsyncStorage.removeItem('@myplan_ai_history');
     } catch {}
     setMessages([{ ...WELCOME_MESSAGE, id: 'welcome_' + Date.now(), timestamp: Date.now() }]);
+  };
+
+  // 检查本地有没有存过 API Key（打开设置弹窗后重新检查一次）
+  useEffect(() => {
+    (async () => {
+      const cfg = await getAiConfig();
+      setHasKey(!!cfg.apiKey);
+    })();
+  }, [showKeyModal]);
+
+  const openKeyModal = async () => {
+    const cfg = await getAiConfig();
+    setKeyDraft(cfg.apiKey);
+    setShowKeyModal(true);
+  };
+
+  const saveKey = async () => {
+    await saveAiConfig({ apiKey: keyDraft.trim() });
+    setShowKeyModal(false);
   };
 
   const sendMessage = async (text: string) => {
@@ -315,10 +340,21 @@ export default function AIScreen() {
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>🤖 AI 助手 · 科学拆解专家</Text>
-        <TouchableOpacity onPress={clearHistory} style={styles.clearBtn}>
-          <Text style={styles.clearBtnText}>清空</Text>
-        </TouchableOpacity>
+        <View style={styles.headerBtns}>
+          <TouchableOpacity onPress={openKeyModal} style={styles.settingBtn}>
+            <Text style={styles.settingBtnText}>⚙️ 设置</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={clearHistory} style={styles.clearBtn}>
+            <Text style={styles.clearBtnText}>清空</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {!hasKey && (
+        <TouchableOpacity style={styles.keyHint} onPress={openKeyModal}>
+          <Text style={styles.keyHintText}>⚠️ 还没填 API Key，点这里设置（AI 功能需要）</Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.quickActions}>
         {QUICK_ACTIONS.map(action => (
@@ -384,6 +420,42 @@ export default function AIScreen() {
           <Text style={styles.sendBtnText}>发送</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showKeyModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowKeyModal(false)}
+      >
+        <View style={styles.modalMask}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>填写 DeepSeek API Key</Text>
+            <Text style={styles.modalDesc}>
+              去 platform.deepseek.com 注册并创建一个 API Key，粘贴到这里。Key 只保存在你自己的设备上，不会上传。
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={keyDraft}
+              onChangeText={setKeyDraft}
+              placeholder="sk-..."
+              placeholderTextColor="#aaa"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity
+                onPress={() => setShowKeyModal(false)}
+                style={[styles.modalBtn, styles.modalCancel]}
+              >
+                <Text style={styles.modalCancelText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveKey} style={[styles.modalBtn, styles.modalOk]}>
+                <Text style={styles.modalOkText}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -408,6 +480,54 @@ const styles = StyleSheet.create({
     backgroundColor: '#fee2e2',
   },
   clearBtnText: { color: '#E53935', fontSize: 13, fontWeight: '600' },
+  headerBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  settingBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 14,
+    backgroundColor: '#EDF3FD',
+    borderWidth: 1,
+    borderColor: '#d0e0f7',
+  },
+  settingBtnText: { color: '#1976D2', fontSize: 13, fontWeight: '600' },
+  keyHint: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#FFF7E6',
+    borderWidth: 1,
+    borderColor: '#FFE0A3',
+  },
+  keyHintText: { color: '#B26A00', fontSize: 13, fontWeight: '600' },
+  modalMask: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1a1a2e', marginBottom: 8 },
+  modalDesc: { fontSize: 13, color: '#64748b', lineHeight: 20, marginBottom: 12 },
+  modalInput: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#1e293b',
+  },
+  modalBtns: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 18 },
+  modalBtn: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 20 },
+  modalCancel: { backgroundColor: '#f1f5f9' },
+  modalCancelText: { color: '#475569', fontSize: 14, fontWeight: '600' },
+  modalOk: { backgroundColor: '#1976D2' },
+  modalOkText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   quickActions: {
     flexDirection: 'row',
     paddingHorizontal: 16,

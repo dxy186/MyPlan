@@ -6,7 +6,6 @@
  * 如果以后换 Key / 换模型，用 saveAiConfig() 写入本地配置即可覆盖默认值。
  */
 
-import { DEEPSEEK_API_KEY } from '../ai';
 import { KEYS, loadJSON, saveJSON } from './planning';
 
 export type AiConfig = {
@@ -18,11 +17,9 @@ export type AiConfig = {
 
 const DEFAULT_CONFIG: AiConfig = {
   provider: 'deepseek',
-  // Key 不在这里再写一遍：直接复用原有 app/ai.tsx 里的常量，
-  // 保证「只有一个地方存 Key」，新页面也不会引入新的硬编码密钥。
-  get apiKey() {
-    return DEEPSEEK_API_KEY;
-  },
+  // Key 不写死在代码里：默认读本地 .env（开发用，.env 不会提交）；
+  // 每个人也可以在 App 里自己填，填了存在本地并覆盖这里的默认值。
+  apiKey: process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY ?? '',
   apiUrl: 'https://api.deepseek.com/v1/chat/completions',
   model: 'deepseek-chat',
 };
