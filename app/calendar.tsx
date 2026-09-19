@@ -245,7 +245,7 @@ function CalendarMain() {
     setShowRenameFor(item.id);
   };
 
-  // 单击事项名称 → 改日期；双击 → 改名称
+  // 单击事项文本框 → 改日期；双击 → 进入文本框自由输入
   const handleItemTitlePress = (item: CalendarItem) => {
     const now = Date.now();
     const gap = now - lastItemTapRef.current;
@@ -541,21 +541,39 @@ function CalendarMain() {
                           {item.completed && <Text style={{ color: '#fff', fontSize: 13 }}>✓</Text>}
                         </TouchableOpacity>
                         {showRenameFor === item.id ? (
-                          <TextInput
-                            autoFocus
-                            placeholder="事项名称"
-                            style={[styles.renameInput, { flex: 1 }]}
-                            value={renameText}
-                            onChangeText={setRenameText}
-                            onSubmitEditing={() => saveRename(item.id)}
-                            onBlur={() => saveRename(item.id)}
-                          />
+                          /* 双击进入后的文本框：多行，可随意输入任意文字 */
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              autoFocus
+                              multiline
+                              placeholder="输入事项内容（可换行）"
+                              placeholderTextColor="#b9c2cf"
+                              textAlignVertical="top"
+                              style={styles.noteTextBoxEditing}
+                              value={renameText}
+                              onChangeText={setRenameText}
+                              onBlur={() => saveRename(item.id)}
+                            />
+                            <View style={styles.editActions}>
+                              <TouchableOpacity
+                                style={styles.renameDoneBtn}
+                                onPressIn={() => saveRename(item.id)}
+                                onPress={() => saveRename(item.id)}
+                              >
+                                <Text style={styles.renameDoneText}>✓ 保存</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
                         ) : (
-                          <TouchableOpacity style={{ flex: 1 }} onPress={() => handleItemTitlePress(item)}>
+                          <TouchableOpacity
+                            style={[styles.noteTextBox, { flex: 1 }]}
+                            activeOpacity={0.7}
+                            onPress={() => handleItemTitlePress(item)}
+                          >
                             <Text style={[styles.noteItemText, { color: item.textColor || '#222', fontWeight: item.bold ? 'bold' : '400' }, item.completed && { textDecorationLine: 'line-through', color: '#b0b0b0' }]}>
                               {item.title}
-                              <Text style={{ fontSize: 11, color: '#888', marginLeft: 6 }}> [{item.date}]</Text>
                             </Text>
+                            <Text style={styles.noteItemDate}>[{item.date}]</Text>
                           </TouchableOpacity>
                         )}
                         {/* 调整顺序：上移 / 下移（仅在同一天内） */}
@@ -770,6 +788,32 @@ const styles = StyleSheet.create({
   noteItemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 0.6, borderColor: '#e6e6ed' },
   checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.4, borderColor: '#bbb', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   noteItemText: { fontSize: 15, color: '#222' },
+  // 我的事项：文本框外观（显示态）
+  noteTextBox: {
+    borderWidth: 1,
+    borderColor: '#e4e9f1',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+  },
+  // 双击进入后的可编辑文本框
+  noteTextBoxEditing: {
+    width: '100%',
+    minHeight: 46,
+    borderWidth: 1.4,
+    borderColor: '#1976D2',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+    fontSize: 15,
+    color: '#222',
+  },
+  noteItemDate: { fontSize: 11, color: '#888', marginTop: 2 },
+  editActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 },
+  renameDoneBtn: { backgroundColor: '#1976D2', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  renameDoneText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   dateInput: { borderBottomWidth: 1, borderColor: '#1976D2', fontSize: 13, minWidth: 90, marginLeft: 4, marginRight: 4, padding: 0, color: '#1976D2' },
   addContainer: { marginTop: 10 },
   addRow: { flexDirection: 'row', alignItems: 'center' },
