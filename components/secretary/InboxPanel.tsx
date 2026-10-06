@@ -71,7 +71,12 @@ const SOURCE_COLOR: Record<InboxSource, string> = {
   syllabus: '#E64A19',
 };
 
-export default function InboxPanel() {
+type Props = {
+  /** 嵌入到别的滚动容器里时置 true（外层已有 ScrollView，避免嵌套滚动） */
+  embedded?: boolean;
+};
+
+export default function InboxPanel({ embedded = false }: Props = {}) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [quickText, setQuickText] = useState('');
   const [icalUrl, setIcalUrl] = useState('');
@@ -219,8 +224,8 @@ export default function InboxPanel() {
     await persist([]);
   };
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+  const body = (
+    <>
       <View style={styles.headerRow}>
         <Text style={styles.header}>📥 信息采集 · 任务池</Text>
         {items.length > 0 && (
@@ -320,12 +325,24 @@ export default function InboxPanel() {
       </View>
 
       <View style={{ height: 24 }} />
+    </>
+  );
+
+  // 作为合并页面的一部分时，嵌进外层滚动容器（避免 ScrollView 嵌套）
+  if (embedded) {
+    return <View style={[styles.embeddedRoot, styles.content]}>{body}</View>;
+  }
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {body}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
+  embeddedRoot: { backgroundColor: '#F8FAFC' },
   content: { padding: 16 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   header: { fontSize: 22, fontWeight: '700', color: '#1a1a2e' },

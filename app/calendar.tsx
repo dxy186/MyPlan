@@ -15,6 +15,7 @@ import { Calendar } from 'react-native-calendars';
 import { getHolidayData } from './utils/holidays';
 import { solarToLunar } from './utils/lunar';
 import EnergyPanel from '../components/secretary/EnergyPanel';
+import InboxPanel from '../components/secretary/InboxPanel';
 import SchedulePanel from '../components/secretary/SchedulePanel';
 import SubTabBar from '../components/secretary/SubTabBar';
 
@@ -877,12 +878,22 @@ const CALENDAR_PAGE_TABS = [
   { key: 'energy', label: '精力仪表盘' },
 ];
 
+// 「双轨排程」页 = 排程面板 + 从「SMART任务记录 → 任务池」合并过来的信息采集
+function ScheduleTab() {
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+      <SchedulePanel embedded />
+      <InboxPanel embedded />
+    </ScrollView>
+  );
+}
+
 export default function CalendarPage() {
   const [subTab, setSubTab] = useState('main');
   return (
     <View style={{ flex: 1 }}>
       <SubTabBar tabs={CALENDAR_PAGE_TABS} active={subTab} onChange={setSubTab} />
-      {subTab === 'main' ? <CalendarMain /> : subTab === 'schedule' ? <SchedulePanel /> : <EnergyPanel />}
+      {subTab === 'main' ? <CalendarMain /> : subTab === 'schedule' ? <ScheduleTab /> : <EnergyPanel />}
     </View>
   );
 }

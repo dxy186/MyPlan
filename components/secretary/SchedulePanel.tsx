@@ -69,7 +69,12 @@ const TYPE_STYLE: Record<string, { color: string; bg: string; label: string }> =
 
 const COST_LABEL: Record<string, string> = { high: '高耗能', medium: '中耗能', low: '低耗能' };
 
-export default function SchedulePanel() {
+type Props = {
+  /** 嵌入到别的滚动容器里时置 true（外层已有 ScrollView，避免嵌套滚动） */
+  embedded?: boolean;
+};
+
+export default function SchedulePanel({ embedded = false }: Props = {}) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [logs, setLogs] = useState<EnergyLog[]>([]);
   const [fixed, setFixed] = useState<FixedEvent[]>([]);
@@ -251,8 +256,8 @@ export default function SchedulePanel() {
 
   const percent = doneCount.total === 0 ? 0 : Math.round((doneCount.done / doneCount.total) * 100);
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+  const body = (
+    <>
       <Text style={styles.header}>🗓 双轨排程</Text>
       <Text style={styles.lead}>
         进度轨保证「做得完」，精力轨保证「做得爽」。硬约束先锁死，高耗能任务排进黄金时段，每天还留固定玩的时间。
@@ -541,12 +546,24 @@ export default function SchedulePanel() {
       </View>
 
       <View style={{ height: 24 }} />
+    </>
+  );
+
+  // 作为合并页面的一部分时，嵌进外层滚动容器（避免 ScrollView 嵌套）
+  if (embedded) {
+    return <View style={[styles.embeddedRoot, styles.content]}>{body}</View>;
+  }
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {body}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
+  embeddedRoot: { backgroundColor: '#F8FAFC' },
   content: { padding: 16 },
   header: { fontSize: 22, fontWeight: '700', color: '#1a1a2e', marginBottom: 6 },
   lead: { fontSize: 13, color: '#5f6b7a', lineHeight: 20, marginBottom: 10 },

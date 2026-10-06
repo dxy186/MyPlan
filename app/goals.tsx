@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import DecomposePanel from '../components/secretary/DecomposePanel';
-import InboxPanel from '../components/secretary/InboxPanel';
 import SubTabBar from '../components/secretary/SubTabBar';
 
 // ---------- 类型定义 ----------
@@ -1268,11 +1267,11 @@ const styles = StyleSheet.create({
   },
 });
 
-// ---------- 页面入口：原有「SMART任务记录」+ 子界面「目标拆解」「任务池」----------
+// ---------- 页面入口：原有「SMART任务记录」+ 子界面「目标拆解」----------
+// 注：「任务池」已合并到「日历进度 → 双轨排程」页
 const GOALS_PAGE_TABS = [
   { key: 'main', label: 'SMART任务记录' },
   { key: 'decompose', label: '目标拆解' },
-  { key: 'inbox', label: '任务池' },
 ];
 
 export default function GoalsScreen() {
@@ -1280,7 +1279,7 @@ export default function GoalsScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SubTabBar tabs={GOALS_PAGE_TABS} active={subTab} onChange={setSubTab} />
-      {subTab === 'main' ? <GoalsMain /> : subTab === 'decompose' ? <DecomposePanel /> : <InboxPanel />}
+      {subTab === 'main' ? <GoalsMain /> : <DecomposePanel />}
     </View>
   );
 }
