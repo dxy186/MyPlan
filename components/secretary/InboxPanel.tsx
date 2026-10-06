@@ -166,13 +166,21 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
     setBusy(true);
     setMessage('正在拉取 iCal…');
     try {
-      const res = await fetch(url);
+      // Electron 桌面版：走本地主进程代理（同源），绕开渲染进程的 CORS 限制；网页版仍直连
+      const isElectron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent || '');
+      const target = isElectron
+        ? `${window.location.origin}/MyPlan/__ics_proxy?url=${encodeURIComponent(url)}`
+        : url;
+      const res = await fetch(target);
       const text = await res.text();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!/BEGIN:VCALENDAR/i.test(text)) {
+        throw new Error('返回的不是 ICS 内容（链接可能被登录页/验证页拦截）');
+      }
       await importIcs(text, 'iCal 链接');
     } catch (e: any) {
       setMessage(
-        `拉取失败：${e?.message || '网络错误'}。浏览器可能因 CORS 拦截，请改用下方「粘贴 ICS 文本」。`
+        `拉取失败：${e?.message || '网络错误'}。若链接被登录/验证页拦截，请在已登录的浏览器打开该链接，全选复制 ICS 文本，用下方「粘贴 ICS 文本」导入。`
       );
     } finally {
       setBusy(false);
@@ -258,7 +266,7 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>📚 Canvas / LMS 日历（iCal）</Text>
         <Text style={styles.subText}>
-          在 Canvas → Calendar → 「Calendar Feed」复制订阅链接粘到这里；若浏览器拦截跨域，可直接粘贴 ICS 文本。
+          在 Canvas → Calendar → 「Calendar Feed」复制订阅链接粘到这里；桌面版会自动经本地代理拉取（绕开跨域）。若链接被登录/验证页拦截，可直接粘贴 ICS 文本导入。
         </Text>
         <TextInput
           style={styles.input}
