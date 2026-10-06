@@ -33,6 +33,7 @@ import {
   suggestFragment,
   todayStr,
 } from '@/app/utils/planning';
+import { useTodayStr } from '@/hooks/use-today';
 
 function ScorePicker({
   value,
@@ -92,9 +93,10 @@ export default function EnergyPanel() {
   }, [restTimer]);
 
   const curve = useMemo(() => predictCurve(logs, date), [logs, date]);
+  const today = useTodayStr();
   const todayLogs = useMemo(
-    () => logs.filter(l => l.date === todayStr()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [logs]
+    () => logs.filter(l => l.date === today).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [logs, today]
   );
   const latest = todayLogs[0];
   const golden = goldenSlots(curve);

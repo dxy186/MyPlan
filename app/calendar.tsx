@@ -18,6 +18,7 @@ import EnergyPanel from '../components/secretary/EnergyPanel';
 import InboxPanel from '../components/secretary/InboxPanel';
 import SchedulePanel from '../components/secretary/SchedulePanel';
 import SubTabBar from '../components/secretary/SubTabBar';
+import { useTodayStr } from '../hooks/use-today';
 
 // ---------- 类型定义 ----------
 type Subtask = { id: string; title: string; completed: boolean };
@@ -79,6 +80,17 @@ function CalendarMain() {
   const [showDatePickerFor, setShowDatePickerFor] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(getNowDateString());
   const [holidayMap, setHolidayMap] = useState<Record<string, 'holiday' | 'workday'>>({});
+
+  // 「今天」跟着真实时间走：跳天时自动重渲染
+  const todayStr = useTodayStr();
+  const prevTodayRef = useRef(todayStr);
+  useEffect(() => {
+    const prev = prevTodayRef.current;
+    if (prev === todayStr) return;
+    prevTodayRef.current = todayStr;
+    // 跳天时如果正看着「今天」所在的月份，日历跟着跳到新月份
+    setCurrentMonth(m => (m.slice(0, 7) === prev.slice(0, 7) ? todayStr : m));
+  }, [todayStr]);
 
   const [currentEditDate, setCurrentEditDate] = useState<string>('');
   const [currentEditItemId, setCurrentEditItemId] = useState<string | null>(null);
@@ -339,7 +351,7 @@ function CalendarMain() {
     }
 
     const dateStr = date.dateString;
-    const isToday = dateStr === getNowDateString();
+    const isToday = dateStr === todayStr;
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
     const itemLines = itemsToday.slice(0, 5);
 
@@ -450,7 +462,6 @@ function CalendarMain() {
   };
 
   // ---------- 主渲染 ----------
-  const todayStr = getNowDateString();
   const todayItems = calendarItems.filter(item => item.date === todayStr);
   const totalToday = todayItems.length;
   const completedToday = todayItems.filter(item => item.completed).length;

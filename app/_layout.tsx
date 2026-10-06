@@ -7,6 +7,7 @@ import CalendarScreen from './calendar';
 import GoalsScreen from './goals';
 import HistoryScreen from './history';
 import WoopScreen from './woop';
+import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
   { name: '日历进度', key: 'calendar', icon: '📅' },
@@ -20,6 +21,9 @@ const NAVS = [
 export default function RootLayout() {
   const [activeKey, setActiveKey] = useState('calendar');
   const { width } = useWindowDimensions();
+
+  // 跳天时让整棵树重渲染，各页面里的「今天」才会跟着更新
+  useTodayStr();
 
 
   const renderPage = () => {
