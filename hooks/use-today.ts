@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { EnergySlotKey, currentSlotKey } from '@/app/utils/planning';
+
 /** 本地时间的今天，YYYY-MM-DD（不能用 toISOString，会差 8 小时） */
 function currentDateStr(): string {
   const d = new Date();
@@ -36,4 +38,32 @@ export function useTodayStr(): string {
   }, []);
 
   return today;
+}
+
+/**
+ * 返回「当前所处精力时段」，跨时段/跨天时自动更新。
+ *
+ * 精力打卡默认跟随当前时间；用户手动选时段后由组件自行覆盖。
+ */
+export function useCurrentSlot(): EnergySlotKey {
+  const [slot, setSlot] = useState<EnergySlotKey>(() => currentSlotKey());
+
+  useEffect(() => {
+    const check = () => {
+      const now = currentSlotKey();
+      setSlot(prev => (prev === now ? prev : now));
+    };
+
+    const timer = setInterval(check, 30 * 1000);
+    if (typeof window !== 'undefined') window.addEventListener('focus', check);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', check);
+
+    return () => {
+      clearInterval(timer);
+      if (typeof window !== 'undefined') window.removeEventListener('focus', check);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', check);
+    };
+  }, []);
+
+  return slot;
 }

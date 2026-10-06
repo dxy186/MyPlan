@@ -250,6 +250,22 @@ export function slotLabel(key: EnergySlotKey): string {
   return ENERGY_SLOTS.find(s => s.key === key)?.label ?? key;
 }
 
+/** 把一天中的小时（0-23）映射到超日节律时段 */
+export function slotForHour(hour: number): EnergySlotKey {
+  if (hour >= 6 && hour < 8) return 'dawn';
+  if (hour >= 8 && hour < 11) return 'morning';
+  if (hour >= 11 && hour < 13) return 'noon';
+  if (hour >= 13 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 19) return 'evening';
+  if (hour >= 19 && hour < 23) return 'night';
+  return 'late'; // 23:00-06:00
+}
+
+/** 当前所处的精力时段，用于精力打卡的默认值 */
+export function currentSlotKey(d: Date = new Date()): EnergySlotKey {
+  return slotForHour(d.getHours());
+}
+
 /** 把精力分数映射成 高/中/低 等级，用于排程匹配 */
 export function energyLevel(score: number): 'high' | 'medium' | 'low' {
   if (score >= 7) return 'high';

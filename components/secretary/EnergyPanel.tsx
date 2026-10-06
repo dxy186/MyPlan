@@ -31,9 +31,8 @@ import {
   saveJSON,
   slotLabel,
   suggestFragment,
-  todayStr,
 } from '@/app/utils/planning';
-import { useTodayStr } from '@/hooks/use-today';
+import { useCurrentSlot, useTodayStr } from '@/hooks/use-today';
 
 function ScorePicker({
   value,
@@ -69,8 +68,9 @@ function ScorePicker({
 
 export default function EnergyPanel() {
   const [logs, setLogs] = useState<EnergyLog[]>([]);
-  const [date, setDate] = useState(todayStr());
-  const [slot, setSlot] = useState<EnergySlotKey>('morning');
+  // 日期/时段默认跟随当前时间；用户手动调整后固定为手动值
+  const [manualDate, setManualDate] = useState<string | null>(null);
+  const [manualSlot, setManualSlot] = useState<EnergySlotKey | null>(null);
   const [sleepHours, setSleepHours] = useState('');
   const [sleepQuality, setSleepQuality] = useState(6);
   const [physical, setPhysical] = useState(6);
@@ -92,8 +92,11 @@ export default function EnergyPanel() {
     }
   }, [restTimer]);
 
-  const curve = useMemo(() => predictCurve(logs, date), [logs, date]);
   const today = useTodayStr();
+  const autoSlot = useCurrentSlot();
+  const date = manualDate ?? today;
+  const slot = manualSlot ?? autoSlot;
+  const curve = useMemo(() => predictCurve(logs, date), [logs, date]);
   const todayLogs = useMemo(
     () => logs.filter(l => l.date === today).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [logs, today]
@@ -198,16 +201,26 @@ export default function EnergyPanel() {
       {/* 打卡表单 */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>精力打卡</Text>
-        <Text style={styles.label}>日期（YYYY-MM-DD）</Text>
-        <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="2026-01-01" placeholderTextColor="#aaa" />
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>日期（YYYY-MM-DD）</Text>
+          <TouchableOpacity onPress={() => setManualDate(null)} disabled={manualDate === null}>
+            <Text style={styles.autoTag}>{manualDate === null ? '⏱ 跟随今天' : '↺ 回到今天'}</Text>
+          </TouchableOpacity>
+        </View>
+        <TextInput style={styles.input} value={date} onChangeText={setManualDate} placeholder="2026-01-01" placeholderTextColor="#aaa" />
 
-        <Text style={styles.label}>所处时段</Text>
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>所处时段</Text>
+          <TouchableOpacity onPress={() => setManualSlot(null)} disabled={manualSlot === null}>
+            <Text style={styles.autoTag}>{manualSlot === null ? '⏱ 自动跟随当前时间' : '↺ 恢复跟随时间'}</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.chipWrap}>
           {ENERGY_SLOTS.map(s => (
             <TouchableOpacity
               key={s.key}
               style={[styles.chip, slot === s.key && styles.chipActive]}
-              onPress={() => setSlot(s.key)}
+              onPress={() => setManualSlot(s.key)}
             >
               <Text style={[styles.chipText, slot === s.key && styles.chipTextActive]}>{s.label}</Text>
             </TouchableOpacity>
@@ -317,6 +330,8 @@ const styles = StyleSheet.create({
   curveBarLow: { backgroundColor: '#b0bec5' },
   curveLabel: { fontSize: 10, color: '#7b8ba2', marginTop: 4 },
   label: { fontSize: 13, color: '#283147', fontWeight: '600', marginTop: 10, marginBottom: 4 },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  autoTag: { fontSize: 12, color: '#1976D2', fontWeight: '600', marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: '#e2e5ed',
