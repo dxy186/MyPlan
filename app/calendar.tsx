@@ -886,7 +886,7 @@ const styles = StyleSheet.create({
 const CALENDAR_PAGE_TABS = [
   { key: 'main', label: '日历进度' },
   { key: 'schedule', label: '双轨排程' },
-  { key: 'energy', label: '精力仪表盘' },
+  { key: 'energy', label: '今日记录' },
 ];
 
 // 「双轨排程」页 = 排程面板 + 从「SMART任务记录 → 任务池」合并过来的信息采集

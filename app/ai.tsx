@@ -118,7 +118,38 @@ async function loadContext(): Promise<string> {
     const calRaw = await AsyncStorage.getItem('@myplan_calendar');
     const tasks = taskRaw ? JSON.parse(taskRaw) : [];
     const items = calRaw ? JSON.parse(calRaw) : [];
-    return `当前任务数据：${JSON.stringify(tasks)}\n当前日历事项：${JSON.stringify(items)}`;
+
+    // 精力日志与日记：按时间倒序截取最近若干条，供 AI 分析作息与状态趋势
+    const energyRaw = await AsyncStorage.getItem('@myplan_energy_logs');
+    const energyLogs = energyRaw ? JSON.parse(energyRaw) : [];
+    const recentEnergy = [...energyLogs]
+      .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)))
+      .slice(0, 40)
+      .map((l: any) => ({
+        日期: l.date,
+        时段: l.slot,
+        分数: l.score,
+        睡眠质量: l.sleepQuality,
+        生理: l.physical,
+        情绪: l.emotional,
+        认知: l.cognitive,
+        意义: l.meaning,
+        备注: l.note,
+      }));
+
+    const diaryRaw = await AsyncStorage.getItem('@myplan_diary');
+    const diary = diaryRaw ? JSON.parse(diaryRaw) : [];
+    const recentDiary = [...diary]
+      .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 30)
+      .map((d: any) => ({ 日期: d.date, 心情: d.mood, 天气: d.weather, 日记: d.content }));
+
+    return [
+      `当前任务数据：${JSON.stringify(tasks)}`,
+      `当前日历事项：${JSON.stringify(items)}`,
+      `最近精力打卡（最多40条）：${JSON.stringify(recentEnergy)}`,
+      `最近日记（最多30篇）：${JSON.stringify(recentDiary)}`,
+    ].join('\n');
   } catch {
     return '';
   }

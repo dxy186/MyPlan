@@ -29,6 +29,7 @@ export const KEYS = {
   schedule: '@myplan_schedule', // 最近一次生成的排程
   fragmentLogs: '@myplan_fragment_logs', // 碎片时间日志
   aiConfig: '@myplan_ai_config', // AI Key 等配置（不硬编码）
+  diary: '@myplan_diary', // 日记（每天一条，可翻看历史）
 } as const;
 
 export async function loadJSON<T>(key: string, fallback: T): Promise<T> {
@@ -271,6 +272,33 @@ export function energyLevel(score: number): 'high' | 'medium' | 'low' {
   if (score >= 7) return 'high';
   if (score >= 4.5) return 'medium';
   return 'low';
+}
+
+// ---------------------------------------------------------------------------
+// 三·二、日记模型（每天一条，可翻看历史；与当天精力值一起供 AI 分析）
+// ---------------------------------------------------------------------------
+
+export type DiaryEntry = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  content: string; // 正文
+  mood?: string; // 心情（emoji 标签）
+  weather?: string; // 天气
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** 按日期汇总当天精力：平均分 / 打卡次数 / 明细（新→旧） */
+export function energyForDate(
+  logs: EnergyLog[],
+  date: string
+): { avg: number | null; count: number; logs: EnergyLog[] } {
+  const list = logs
+    .filter(l => l.date === date)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (list.length === 0) return { avg: null, count: 0, logs: [] };
+  const avg = Math.round((list.reduce((s, l) => s + l.score, 0) / list.length) * 10) / 10;
+  return { avg, count: list.length, logs: list };
 }
 
 // ---------------------------------------------------------------------------
