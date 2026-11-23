@@ -475,6 +475,14 @@ export async function resolveOverrun(
   return { state: next, schedule, summary: changes[0].summary };
 }
 
+/** 完成任务时广播，CelebrationHost 会显示庆祝 */
+export const CELEBRATE_EVENT = 'myplan:celebrate';
+export function celebrate(title: string) {
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    window.dispatchEvent(new CustomEvent(CELEBRATE_EVENT, { detail: { title } }));
+  }
+}
+
 /** 设置任务完成 / 未完成 */
 export async function setTaskDone(taskId: string, done: boolean): Promise<PlanState> {
   const state = await loadPlanState();
@@ -486,6 +494,7 @@ export async function setTaskDone(taskId: string, done: boolean): Promise<PlanSt
   if (ref.task.split) setChildrenDone(state.goals, taskId, done);
   markGoalCompletion(ref.goal);
   await saveState(state);
+  if (done) celebrate(ref.task.title);
   return state;
 }
 

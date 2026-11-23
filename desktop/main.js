@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -155,6 +155,120 @@ function handleIcsProxy(rawUrl, res, depth = 0) {
 
 let mainWindow;
 let staticServer;
+let tray = null;
+let isQuitting = false;
+
+const APP_ID = 'com.myplan.calendar';
+// 开机自启时带上这个参数：只在托盘里待命，不弹窗口
+const START_HIDDEN = process.argv.includes('--hidden');
+
+// ---------- 桌面设置（开机自启等），存在用户数据目录 ----------
+function settingsFile() {
+  return path.join(app.getPath('userData'), 'desktop-settings.json');
+}
+function loadDesktopSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function saveDesktopSettings(s) {
+  try {
+    fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+    fs.writeFileSync(settingsFile(), JSON.stringify(s, null, 2));
+  } catch {}
+}
+
+// 便携版每次运行都会解压到临时目录，所以开机自启和快捷方式要指向原始 exe
+function exePath() {
+  return process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+}
+
+function setAutostart(on) {
+  if (!app.isPackaged) return; // 开发模式（npm start）不注册
+  app.setLoginItemSettings({ openAtLogin: on, path: exePath(), args: ['--hidden'] });
+  saveDesktopSettings({ ...loadDesktopSettings(), autostart: on });
+}
+function autostartOn() {
+  const s = loadDesktopSettings();
+  return s.autostart !== false;
+}
+
+// Windows 只有在「开始」菜单里有一个带 AppUserModelID 的快捷方式时，才会显示系统通知
+function ensureStartMenuShortcut() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    const dir = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+    fs.mkdirSync(dir, { recursive: true });
+    const lnk = path.join(dir, 'MyPlan.lnk');
+    const opts = { target: exePath(), appUserModelId: APP_ID, description: 'MyPlan 日历', icon: exePath(), iconIndex: 0 };
+    let same = false;
+    if (fs.existsSync(lnk)) {
+      try {
+        const cur = shell.readShortcutLink(lnk);
+        same = cur.target === opts.target && cur.appUserModelId === APP_ID;
+      } catch {}
+    }
+    if (!same) shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'replace' : 'create', opts);
+  } catch (e) {
+    console.error('shortcut', e);
+  }
+}
+
+function showWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function trayIcon() {
+  const candidates = [path.join(__dirname, 'dist', 'favicon.ico'), path.join(__dirname, 'icon.png')];
+  for (const f of candidates) {
+    if (fs.existsSync(f)) {
+      const img = nativeImage.createFromPath(f);
+      if (!img.isEmpty()) return img.resize({ width: 16, height: 16 });
+    }
+  }
+  return nativeImage.createEmpty();
+}
+
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: '打开 MyPlan', click: showWindow },
+    { type: 'separator' },
+    {
+      label: '开机自动启动',
+      type: 'checkbox',
+      checked: autostartOn(),
+      click: (item) => {
+        setAutostart(item.checked);
+        tray && tray.setContextMenu(buildTrayMenu());
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出（不再提醒）',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function createTray() {
+  if (tray) return;
+  tray = new Tray(trayIcon());
+  tray.setToolTip('MyPlan — 双击打开；关掉窗口后仍会按时提醒');
+  tray.setContextMenu(buildTrayMenu());
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -166,10 +280,26 @@ async function createWindow() {
     title: 'MyPlan',
     backgroundColor: '#F8FAFC',
     icon: path.join(__dirname, 'dist', 'favicon.ico'),
+    show: !START_HIDDEN,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
+      // 窗口藏在托盘里时，页面里的定时器也要照常跑，否则到点提醒会迟到
+      backgroundThrottling: false,
     },
+  });
+
+  // 点 × 不退出，只是藏到托盘里，到点照样提醒
+  mainWindow.on('close', (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    mainWindow.hide();
+    const s = loadDesktopSettings();
+    if (!s.trayTipShown && tray && process.platform === 'win32') {
+      tray.displayBalloon({ title: 'MyPlan 还在后台', content: '关掉窗口后会在托盘里待命，到点照样提醒。右键托盘图标可以退出。' });
+      saveDesktopSettings({ ...s, trayTipShown: true });
+    }
   });
 
   const distPath = path.join(__dirname, 'dist');
@@ -189,7 +319,12 @@ async function createWindow() {
   });
 }
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.on('window-all-closed', () => {
+  if (!isQuitting) return; // 托盘模式：窗口关了也继续在后台
   if (staticServer) {
     staticServer.close();
     staticServer = null;
@@ -201,24 +336,28 @@ app.on('window-all-closed', () => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
+  app.on('second-instance', () => showWindow());
 
   // Windows 系统通知需要 AppUserModelId，否则到点提醒弹不出来
-  if (process.platform === 'win32') app.setAppUserModelId('com.myplan.calendar');
+  if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+
+  // 页面里点了系统通知 → 把窗口叫出来
+  ipcMain.on('myplan:show-window', () => showWindow());
 
   app.whenReady().then(() => {
+    ensureStartMenuShortcut();
+    // 第一次运行默认打开开机自启；之后以托盘菜单里的勾选为准
+    const ds = loadDesktopSettings();
+    if (ds.autostart === undefined) setAutostart(true);
+    else if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!ds.autostart, path: exePath(), args: ['--hidden'] });
+    createTray();
     createWindow().catch((err) => {
       dialog.showErrorBox('MyPlan 启动失败', String((err && err.message) || err));
       app.quit();
     });
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      showWindow();
     });
   });
 }

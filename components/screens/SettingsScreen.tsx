@@ -203,12 +203,14 @@ function AiSettingsPanel() {
 function ReminderPanel() {
   const [r, setR] = useState<ReminderSettings | null>(null);
   const [reviewAt, setReviewAt] = useState('');
+  const [morningAt, setMorningAt] = useState('');
   const [msg, setMsg] = useState('');
   const perm = notificationSupported() ? Notification.permission : 'unsupported';
   useEffect(() => {
     loadReminderSettings().then(x => {
       setR(x);
       setReviewAt(minutesToHM(x.eveningReviewAt));
+      setMorningAt(x.morningAt === null ? '' : minutesToHM(x.morningAt));
     });
   }, []);
   if (!r) return <ActivityIndicator />;
@@ -241,13 +243,18 @@ function ReminderPanel() {
           />
           <Text style={styles.unit}>分钟</Text>
         </Field>
+        <Field label="早上提醒时间" hint="提醒你今天有几件事、第一件几点开始；点开直接打开日历里的今天。留空 = 不提醒">
+          <TextInput style={[styles.input, styles.short]} value={morningAt} onChangeText={setMorningAt} placeholder="8:30" />
+        </Field>
         <Field label="晚上复盘时间" hint="到这个时间提醒复盘，今天页也从这时起显示复盘卡片">
           <TextInput style={[styles.input, styles.short]} value={reviewAt} onChangeText={setReviewAt} placeholder="21:00" />
         </Field>
         <TouchableOpacity
-          style={[styles.btn, !/^\d{1,2}:\d{2}$/.test(reviewAt) && styles.disabled]}
-          disabled={!/^\d{1,2}:\d{2}$/.test(reviewAt)}
-          onPress={() => save({ ...r, eveningReviewAt: hmToMinutes(reviewAt) })}
+          style={[styles.btn, (!/^\d{1,2}:\d{2}$/.test(reviewAt) || !/^(\d{1,2}:\d{2})?$/.test(morningAt.trim())) && styles.disabled]}
+          disabled={!/^\d{1,2}:\d{2}$/.test(reviewAt) || !/^(\d{1,2}:\d{2})?$/.test(morningAt.trim())}
+          onPress={() =>
+            save({ ...r, eveningReviewAt: hmToMinutes(reviewAt), morningAt: morningAt.trim() ? hmToMinutes(morningAt.trim()) : null })
+          }
         >
           <Text style={styles.btnText}>保存</Text>
         </TouchableOpacity>
