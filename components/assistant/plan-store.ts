@@ -1,9 +1,8 @@
 /**
- * AI 秘书的数据层：
- * 1. 合并两套任务数据：把「SMART 任务记录」里的任务同步成目标库里的镜像目标，
- *    这样排程和 AI 看到的是同一份完整进度。
- * 2. 把 AI 返回的操作（新增/修改/完成任务、固定日程）应用到数据上，先预览、确认后再保存。
- * 3. 从「现在」开始重新排程。
+ * 统一的数据层（全应用共用）：
+ * 1. 读写唯一一份任务数据（目标库：目标 → 里程碑 → 任务）、固定日程、偏好
+ * 2. 把 AI 返回的操作（新增/修改/完成任务、固定日程）应用到数据上，先预览、确认后再保存
+ * 3. 按共用的作息设置，从「现在」开始重新排程
  */
 import { setMany } from '@/components/storage-batch';
 
@@ -30,48 +29,27 @@ import {
   todayStr,
   weekdayOf,
 } from '@/app/utils/planning';
-import { DEFAULT_SCHEDULE_OPTIONS, ScheduleResult, generateSchedule } from '@/app/utils/scheduler';
+import { ScheduleResult, generateSchedule } from '@/app/utils/scheduler';
 
 import { MEMORIES_KEY, Memory, categoryFactors, categoryRatio, loadMemories } from './habits';
 
-// ---------------------------------------------------------------------------
-// 旧版 SMART 任务（app/goals.tsx 里的结构）
-// ---------------------------------------------------------------------------
-type SmartSubtask = { id: string; title: string; completed: boolean; scheduledDate?: string };
-type SmartTask = {
-  id: string;
-  title: string;
-  dueDate: string;
-  subtasks: SmartSubtask[];
-  specific?: string;
-  measurable?: string;
-  relevant?: string;
-  createdAt: string;
-  updatedAt?: string;
-  [k: string]: unknown;
-};
-type CalendarItem = { id: string; title: string; date: string; completed: boolean; parentTaskId?: string };
+import { DAILY_GOAL_ID, dailyGoal, ensureMigrated } from '@/components/data/migrate';
+import { ScheduleSettings, loadScheduleSettings, toScheduleOptions } from '@/components/data/settings';
 
-export const SMART_PREFIX = 'smart_';
-export const DAILY_GOAL_ID = 'ai_daily';
-const MAIN_SUB = 'main';
+export { DAILY_GOAL_ID };
 
 export type PlanState = {
   goals: Goal[];
   fixed: FixedEvent[];
   energyLogs: EnergyLog[];
   timeLogs: TimeLog[];
-  smartTasks: SmartTask[];
-  calendar: CalendarItem[];
   /** 用户亲口说过的长期偏好 */
   memories: Memory[];
+  /** 作息与排程设置 */
+  settings: ScheduleSettings;
 };
 
 export type TaskRef = { task: PlanTask; goal: Goal; milestoneIdx: number };
-
-export function isMirrorGoal(g: Goal) {
-  return g.id.startsWith(SMART_PREFIX);
-}
 
 function safeDate(s?: string) {
   if (!s) return undefined;
@@ -79,64 +57,17 @@ function safeDate(s?: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined;
 }
 
-/** 把 SMART 任务同步成目标库里的镜像目标（保留 AI/用户在镜像上改过的预估时长、耗能等） */
-export function syncSmartIntoGoals(goals: Goal[], smart: SmartTask[]): Goal[] {
-  const others = goals.filter(g => !isMirrorGoal(g));
-  const prevById = new Map(goals.filter(isMirrorGoal).map(g => [g.id, g]));
-  const mirrors: Goal[] = smart.map(t => {
-    const gid = SMART_PREFIX + t.id;
-    const prev = prevById.get(gid);
-    const prevTasks = new Map<string, PlanTask>();
-    prev?.milestones.forEach(m => m.tasks.forEach(pt => prevTasks.set(pt.id, pt)));
-    const subs: SmartSubtask[] =
-      t.subtasks && t.subtasks.length > 0 ? t.subtasks : [{ id: MAIN_SUB, title: t.title, completed: false }];
-    const tasks: PlanTask[] = subs.map(s => {
-      const id = `${gid}_${s.id}`;
-      const p = prevTasks.get(id);
-      return {
-        ...p,
-        id,
-        title: s.title,
-        estimateMin: p?.estimateMin ?? 60,
-        energyCost: p?.energyCost ?? 'medium',
-        due: safeDate(s.scheduledDate) ?? safeDate(t.dueDate),
-        deps: p?.deps ?? [],
-        // 有子任务时以 SMART 页面的勾选为准；没有子任务时以镜像为准
-        done: s.id === MAIN_SUB ? !!p?.done : !!s.completed,
-        createdAt: p?.createdAt ?? t.createdAt ?? new Date().toISOString(),
-      };
-    });
-    return {
-      id: gid,
-      title: t.title,
-      specific: t.specific || '',
-      measurable: t.measurable || '',
-      achievable: '',
-      relevant: t.relevant || '',
-      due: safeDate(t.dueDate) || '',
-      feasibility: prev?.feasibility ?? 70,
-      difficulty: prev?.difficulty ?? 2,
-      strategy: '来自「SMART任务记录」（自动同步）',
-      milestones: [{ id: `${gid}_m`, title: '子任务', tasks }],
-      createdAt: t.createdAt || new Date().toISOString(),
-    };
-  });
-  return [...others, ...mirrors];
-}
-
 export async function loadPlanState(): Promise<PlanState> {
-  const [goals, fixed, energyLogs, timeLogs, smartTasks, calendar, memories] = await Promise.all([
+  await ensureMigrated();
+  const [goals, fixed, energyLogs, timeLogs, memories, settings] = await Promise.all([
     loadJSON<Goal[]>(KEYS.goals, []),
     loadJSON<FixedEvent[]>(KEYS.fixedEvents, []),
     loadJSON<EnergyLog[]>(KEYS.energyLogs, []),
     loadJSON<TimeLog[]>(KEYS.timeLogs, []),
-    loadJSON<SmartTask[]>(KEYS.tasks, []),
-    loadJSON<CalendarItem[]>(KEYS.calendar, []),
     loadMemories(),
+    loadScheduleSettings(),
   ]);
-  const synced = syncSmartIntoGoals(goals, smartTasks);
-  if (JSON.stringify(synced) !== JSON.stringify(goals)) await saveJSON(KEYS.goals, synced);
-  return { goals: synced, fixed, energyLogs, timeLogs, smartTasks, calendar, memories };
+  return { goals, fixed, energyLogs, timeLogs, memories, settings };
 }
 
 export function allTasks(goals: Goal[]): TaskRef[] {
@@ -177,7 +108,7 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
       ),
     }));
   return generateSchedule(pending, state.energyLogs, state.fixed, {
-    ...DEFAULT_SCHEDULE_OPTIONS,
+    ...toScheduleOptions(state.settings),
     startDate: todayStr(),
     notBeforeMin: nowMinuteRounded(now),
     speedFactor: sf,
@@ -247,23 +178,23 @@ function findGoalForAdd(goals: Goal[], name?: string): Goal {
     const hit =
       goals.find(g => g.title === q) || goals.find(g => g.title.includes(q) || q.includes(g.title));
     if (hit && hit.milestones.length > 0) return hit;
+    // 新目标：AI 拆解出来的一组任务归到同名目标下
+    if (q !== '日常安排' && q !== '日常') {
+      const g: Goal = {
+        ...dailyGoal(),
+        id: randomId(),
+        title: q,
+        specific: '',
+        milestones: [{ id: randomId(), title: q, tasks: [] }],
+        source: 'ai',
+      };
+      goals.push(g);
+      return g;
+    }
   }
   let daily = goals.find(g => g.id === DAILY_GOAL_ID);
   if (!daily) {
-    daily = {
-      id: DAILY_GOAL_ID,
-      title: '日常安排',
-      specific: '通过 AI 秘书添加的任务',
-      measurable: '',
-      achievable: '',
-      relevant: '',
-      due: '',
-      feasibility: 80,
-      difficulty: 1,
-      strategy: 'AI 秘书',
-      milestones: [{ id: `${DAILY_GOAL_ID}_m`, title: 'AI 秘书添加', tasks: [] }],
-      createdAt: new Date().toISOString(),
-    };
+    daily = dailyGoal();
     goals.push(daily);
   }
   return daily;
@@ -277,27 +208,6 @@ function describeTask(t: Partial<PlanTask>) {
   if (t.notBefore) bits.push(`${t.notBefore} 起`);
   if (t.window) bits.push(`偏好${WINDOW_CN[t.window]}`);
   return bits.join('，');
-}
-
-/** SMART 镜像任务 → 原 SMART 任务 id 与子任务 id */
-function mirrorIds(taskId: string): { smartId: string; subId: string } | null {
-  if (!taskId.startsWith(SMART_PREFIX)) return null;
-  const rest = taskId.slice(SMART_PREFIX.length);
-  // 镜像 id 形如 smart_<smartId>_<subId>；smartId 本身可能含下划线，按已知任务匹配
-  const i = rest.lastIndexOf('_');
-  if (i <= 0) return null;
-  return { smartId: rest.slice(0, i), subId: rest.slice(i + 1) };
-}
-
-function resolveMirror(state: PlanState, taskId: string) {
-  for (const t of state.smartTasks) {
-    const prefix = `${SMART_PREFIX}${t.id}_`;
-    if (taskId.startsWith(prefix)) return { smart: t, subId: taskId.slice(prefix.length) };
-  }
-  const ids = mirrorIds(taskId);
-  if (!ids) return null;
-  const smart = state.smartTasks.find(t => t.id === ids.smartId);
-  return smart ? { smart, subId: ids.subId } : null;
 }
 
 /** 在副本上应用操作，返回新状态和每条操作的说明（不保存） */
@@ -338,7 +248,6 @@ export function applyActions(
           if (!ref) throw new Error('找不到这个任务');
           const t = ref.task;
           const before = t.title;
-          const mirror = isMirrorGoal(ref.goal) ? resolveMirror(next, t.id) : null;
           if (a.title && String(a.title).trim()) t.title = String(a.title).trim();
           const est = validMin(a.estimateMin);
           if (est && est !== t.estimateMin) {
@@ -350,26 +259,6 @@ export function applyActions(
           if (a.due !== undefined) t.due = a.due === null ? undefined : safeDate(a.due) ?? t.due;
           if (a.notBefore !== undefined) t.notBefore = a.notBefore === null ? undefined : safeDate(a.notBefore);
           if (a.window !== undefined) t.window = a.window && WINDOWS.includes(a.window) ? a.window : undefined;
-          // 镜像任务的标题、日期写回 SMART 原任务
-          if (mirror) {
-            const { smart, subId } = mirror;
-            if (subId === MAIN_SUB) {
-              smart.title = t.title;
-              if (t.due) smart.dueDate = t.due;
-            } else {
-              const sub = smart.subtasks.find(s => s.id === subId);
-              if (sub) {
-                if (sub.title !== t.title) {
-                  next.calendar = next.calendar.map(c =>
-                    c.parentTaskId === smart.id && c.title === sub.title ? { ...c, title: t.title } : c
-                  );
-                }
-                sub.title = t.title;
-                if (a.due !== undefined) sub.scheduledDate = t.due;
-              }
-            }
-            smart.updatedAt = new Date().toISOString();
-          }
           changes.push({
             action: a,
             ok: true,
@@ -381,23 +270,14 @@ export function applyActions(
           const ref = find(a.taskId);
           if (!ref) throw new Error('找不到这个任务');
           ref.task.done = true;
-          const mirror = isMirrorGoal(ref.goal) ? resolveMirror(next, ref.task.id) : null;
-          if (mirror && mirror.subId !== MAIN_SUB) {
-            const sub = mirror.smart.subtasks.find(s => s.id === mirror.subId);
-            if (sub) {
-              sub.completed = true;
-              next.calendar = next.calendar.map(c =>
-                c.parentTaskId === mirror.smart.id && c.title === sub.title ? { ...c, completed: true } : c
-              );
-            }
-          }
+          ref.task.doneAt = new Date().toISOString();
+          markGoalCompletion(ref.goal);
           changes.push({ action: a, ok: true, summary: `✅ 完成「${ref.task.title}」` });
           break;
         }
         case 'delete_task': {
           const ref = find(a.taskId);
           if (!ref) throw new Error('找不到这个任务');
-          if (isMirrorGoal(ref.goal)) throw new Error(`「${ref.task.title}」来自 SMART 任务记录，请到那里删除`);
           const m = ref.goal.milestones[ref.milestoneIdx];
           m.tasks = m.tasks.filter(t => t.id !== ref.task.id);
           changes.push({ action: a, ok: true, summary: `🗑️ 删除「${ref.task.title}」` });
@@ -458,13 +338,18 @@ export function applyActions(
   return { next, changes };
 }
 
+/** 所有任务都完成时记下目标完成时间；重新打开任务时清掉 */
+export function markGoalCompletion(goal: Goal) {
+  const ts = goal.milestones.flatMap(m => m.tasks);
+  if (ts.length > 0 && ts.every(t => t.done)) goal.completedAt = goal.completedAt ?? new Date().toISOString();
+  else delete goal.completedAt;
+}
+
 /** 只保存数据，不重新排程 */
 export async function saveState(state: PlanState): Promise<void> {
   await setMany([
     [KEYS.goals, JSON.stringify(state.goals)],
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
-    [KEYS.tasks, JSON.stringify(state.smartTasks)],
-    [KEYS.calendar, JSON.stringify(state.calendar)],
     [MEMORIES_KEY, JSON.stringify(state.memories ?? [])],
   ]);
 }
@@ -531,22 +416,15 @@ export async function resolveOverrun(
   return { state: next, schedule, summary: changes[0].summary };
 }
 
-/** 设置任务完成 / 未完成；SMART 镜像任务会同步写回 SMART 任务和日历 */
+/** 设置任务完成 / 未完成 */
 export async function setTaskDone(taskId: string, done: boolean): Promise<PlanState> {
   const state = await loadPlanState();
   const ref = allTasks(state.goals).find(r => r.task.id === taskId);
   if (!ref) return state;
   ref.task.done = done;
-  const mirror = isMirrorGoal(ref.goal) ? resolveMirror(state, taskId) : null;
-  if (mirror && mirror.subId !== MAIN_SUB) {
-    const sub = mirror.smart.subtasks.find(x => x.id === mirror.subId);
-    if (sub) {
-      sub.completed = done;
-      state.calendar = state.calendar.map(c =>
-        c.parentTaskId === mirror.smart.id && c.title === sub.title ? { ...c, completed: done } : c
-      );
-    }
-  }
+  if (done) ref.task.doneAt = new Date().toISOString();
+  else delete ref.task.doneAt;
+  markGoalCompletion(ref.goal);
   await saveState(state);
   return state;
 }
@@ -628,18 +506,18 @@ export function buildContext(
   return lines.join('\n');
 }
 
-export const SYSTEM_PROMPT = `你是用户的私人计划秘书，帮他把要做的事安排进日程，并根据真实进度持续调整。
+export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练：帮他把要做的事安排进日程，根据真实进度持续调整，也回答他关于计划、效率、拆解目标的问题。
 
 用户会用一句话告诉你要做什么、做完了什么、或者想怎么调整。你要结合「当前数据」，返回需要执行的操作。系统会根据操作自动重新排程（从现在开始，见缝插针地把任务塞进空档，避开固定日程，按精力匹配耗能）。
 
 只输出一个 JSON 对象，不要输出别的文字：
 {
-  "reply": "用 2-4 句中文告诉用户你做了什么安排、为什么；有风险（排不下、太赶）要直说",
+  "reply": "用 2-4 句中文告诉用户你做了什么安排、为什么；有风险（排不下、太赶）要直说。如果用户只是提问（今日报告、效率分析、建议、怎么拆解），就基于当前数据认真回答，可以分点、换行，写得详细些",
   "actions": [ ...操作... ]
 }
 
 可用操作：
-- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","window":"morning|afternoon|evening","goal":"归属的目标名，可省略","note":"背景，可省略"}
+- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","window":"morning|afternoon|evening","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
 - {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","window":"... 或 null"}  （只写要改的字段）
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
@@ -657,6 +535,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书，帮他把要�
 6. 要动脑的（写作、编程、复习难点）标 high；一般学习/整理标 medium；跑腿、回消息、杂事标 low。
 7. 日期用 YYYY-MM-DD，根据「现在」推算「明天」「周五」等。
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
+8.1 用户只是提问、不需要改数据时，actions 留空。让你拆解目标时，直接用 add_task 把拆好的步骤加进来（goal 填目标名），在 reply 里讲清拆解思路。
 9. 不要重复添加已存在的任务——是否存在只看「当前数据」。
 10. 对话历史里你说过的安排不一定生效了（用户可能没点确认）。一切以「当前数据」为准：用户要做的事如果当前数据里没有，就重新添加，不要说「已经加过了」。
 11. 如果数据里有「近 N 天复盘」：常见「估少了」就把预估再放宽；常见「太累了」就少排高耗能、多留休息；常见「被打断」就把任务切得更小。

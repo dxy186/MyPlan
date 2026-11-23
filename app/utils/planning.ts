@@ -30,6 +30,7 @@ export const KEYS = {
   fragmentLogs: '@myplan_fragment_logs', // 碎片时间日志
   aiConfig: '@myplan_ai_config', // AI Key 等配置（不硬编码）
   diary: '@myplan_diary', // 日记（每天一条，可翻看历史）
+  scheduleSettings: '@myplan_schedule_settings', // 作息与排程设置（全应用共用）
 } as const;
 
 export async function loadJSON<T>(key: string, fallback: T): Promise<T> {
@@ -331,6 +332,8 @@ export type PlanTask = {
   note?: string;
   /** 第一次追加时间之前的原始预估，用于计算速率系数 */
   originalEstimateMin?: number;
+  /** 完成时间 */
+  doneAt?: string;
   createdAt: string;
 };
 
@@ -358,7 +361,22 @@ export type Goal = {
   woop?: { wish: string; outcome: string; obstacle: string; plan: string };
   milestones: Milestone[];
   createdAt: string;
+  /** 重要 / 紧急四象限 */
+  quadrant?: Quadrant;
+  /** 从哪里来的：SMART 旧数据迁移 / AI 秘书 / 目标拆解 / 任务池 / WOOP */
+  source?: 'smart' | 'ai' | 'decompose' | 'inbox' | 'woop' | 'calendar';
+  /** 整个目标完成的时间（所有任务都完成时） */
+  completedAt?: string;
 };
+
+export type Quadrant = 'important_urgent' | 'important_not_urgent' | 'not_important_urgent' | 'not_important_not_urgent';
+
+export const QUADRANTS: { key: Quadrant; label: string; short: string; color: string }[] = [
+  { key: 'important_urgent', label: '重要且紧急', short: '重要紧急', color: '#D84315' },
+  { key: 'important_not_urgent', label: '重要不紧急', short: '重要', color: '#2E7D32' },
+  { key: 'not_important_urgent', label: '紧急不重要', short: '紧急', color: '#EF6C00' },
+  { key: 'not_important_not_urgent', label: '不重要不紧急', short: '其他', color: '#78909C' },
+];
 
 /** 拆解策略（资源理性模型） */
 export const DECOMPOSE_STRATEGIES = ['时间递进型', '功能分解型', '里程碑型', '混合型'] as const;
@@ -431,6 +449,8 @@ export type TimeLog = {
   estimateMin?: number; // 用于 实际 vs 预估
   fragmentType?: '微输入' | '微整理' | '微恢复' | '微充电' | '刷手机';
   note?: string;
+  /** 记录来源：gap = 「我现在有空」/ 今天页计时器 */
+  source?: 'gap' | 'timer';
   createdAt: string;
 };
 

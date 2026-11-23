@@ -5,9 +5,8 @@
  * 拆解支持两种方式：
  *  1) 本地模板拆解（离线，立刻可用）
  *  2) AI 深度拆解（调用 AI 智能体层，输出结构化 JSON）
- * 结果可一键写入「SMART 任务记录」，与原有功能无缝衔接。
+ * 保存后进入统一的任务列表，并自动排进日程。
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -32,9 +31,9 @@ import {
   isPhysicalAction,
   loadJSON,
   randomId,
-  saveJSON,
   todayStr,
 } from '@/app/utils/planning';
+import { commitState, loadPlanState } from '@/components/assistant/plan-store';
 
 type MilestoneDraft = Milestone;
 
@@ -329,44 +328,21 @@ JSON 结构：
           : undefined,
       milestones,
       createdAt: new Date().toISOString(),
+      quadrant: 'important_not_urgent',
+      source: 'decompose',
     };
-    await saveJSON(KEYS.goals, [goal, ...goals]);
-    setGoals([goal, ...goals]);
-    setMessage('目标已保存（可去「双轨排程」生成日程）');
-  };
-
-  // ---------- 写入 SMART 任务记录（与原功能桥接） ----------
-  const handlePushToTasks = async () => {
-    if (milestones.length === 0) {
-      setMessage('先完成拆解');
-      return;
-    }
-    const raw = await AsyncStorage.getItem(KEYS.tasks);
-    const tasks: any[] = raw ? JSON.parse(raw) : [];
-    const now = new Date().toISOString();
-    for (const m of milestones) {
-      tasks.push({
-        id: randomId(),
-        title: `${title.trim()} · ${m.title}`,
-        dueDate: due.trim() || todayStr(),
-        quadrant: 'important_not_urgent',
-        subtasks: m.tasks.map(t => ({ id: t.id, title: t.title, completed: false })),
-        status: 'PENDING',
-        createdAt: now,
-        updatedAt: now,
-        specific: m.outcome || '',
-        measurable,
-        relevant,
-      });
-    }
-    await AsyncStorage.setItem(KEYS.tasks, JSON.stringify(tasks));
-    setMessage(`已把 ${milestones.length} 个里程碑写入 SMART 任务记录`);
+    const st = await loadPlanState();
+    st.goals = [goal, ...st.goals];
+    await commitState(st);
+    setGoals(st.goals);
+    setMessage('目标已保存，已自动排进日程（在「🏠 今天」和「📅 日历」能看到）');
   };
 
   const handleDeleteGoal = async (id: string) => {
-    const next = goals.filter(g => g.id !== id);
-    setGoals(next);
-    await saveJSON(KEYS.goals, next);
+    const st = await loadPlanState();
+    st.goals = st.goals.filter(g => g.id !== id);
+    await commitState(st);
+    setGoals(st.goals);
   };
 
   return (
@@ -523,17 +499,14 @@ JSON 结构：
         ))}
         <View style={styles.btnRow}>
           <TouchableOpacity style={styles.primaryBtn} onPress={handleSaveGoal}>
-            <Text style={styles.primaryBtnText}>保存目标</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.primaryBtn, styles.aiBtn]} onPress={handlePushToTasks}>
-            <Text style={styles.primaryBtnText}>写入 SMART 任务</Text>
+            <Text style={styles.primaryBtnText}>保存目标并排进日程</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* 目标库 */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>📚 目标库（{goals.length}）</Text>
+        <Text style={styles.cardTitle}>📚 已有目标（{goals.length}）· 具体任务在「📋 全部任务」里管理</Text>
         {goals.length === 0 ? (
           <Text style={styles.empty}>暂无目标</Text>
         ) : (

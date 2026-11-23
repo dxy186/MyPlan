@@ -34,7 +34,7 @@ export const KEY_LABELS: Record<string, string> = {
   '@myplan_schedule': '最近一次排程',
   '@myplan_fragment_logs': '碎片时间记录',
   '@myplan_diary': '日记',
-  '@myplan_assistant_history': 'AI 秘书对话',
+  '@myplan_assistant_history': 'AI 对话（今天页）',
   '@myplan_daily_plans': '每日计划',
   '@myplan_reviews': '每日复盘',
   '@myplan_reminder_settings': '提醒设置',
@@ -49,7 +49,12 @@ export type BackupFile = {
   exportedAt: string;
   /** 键 → AsyncStorage 里存的原始字符串 */
   data: Record<string, string>;
+  /** 导出时的数据格式信息 */
+  meta?: { migratedV2?: boolean };
 };
+
+/** 统一任务数据的迁移标记（见 components/data/migrate.ts） */
+const MIGRATION_KEY = '@myplan__migration_v2';
 
 export type KeySummary = { key: string; label: string; count: number };
 
@@ -91,6 +96,7 @@ export async function buildBackup(includeAiConfig: boolean): Promise<BackupFile>
     formatVersion: BACKUP_FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
     data,
+    meta: { migratedV2: !!(await AsyncStorage.getItem(MIGRATION_KEY)) },
   };
 }
 
@@ -121,7 +127,13 @@ export function parseBackup(text: string): BackupFile {
     if (isDataKey(k) && typeof v === 'string') data[k] = v;
   }
   if (Object.keys(data).length === 0) throw new Error('备份文件里没有任何数据');
-  return { app: obj.app, formatVersion: obj.formatVersion, exportedAt: String(obj.exportedAt || ''), data };
+  return {
+    app: obj.app,
+    formatVersion: obj.formatVersion,
+    exportedAt: String(obj.exportedAt || ''),
+    data,
+    meta: obj.meta && typeof obj.meta === 'object' ? { migratedV2: !!obj.meta.migratedV2 } : undefined,
+  };
 }
 
 /**
@@ -137,6 +149,9 @@ export async function applyBackup(backup: BackupFile): Promise<void> {
   const toRemove = Object.keys(current).filter((k) => !(keepAi && k === AI_CONFIG_KEY));
   await removeMany(toRemove);
   await setMany(Object.entries(backup.data));
+  // 旧版本导出的备份（任务还在 SMART 旧格式里）：导入后重新合并一次
+  if (backup.meta?.migratedV2) await AsyncStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+  else await AsyncStorage.removeItem(MIGRATION_KEY);
 }
 
 export async function readUndoSnapshot(): Promise<UndoSnapshot | null> {

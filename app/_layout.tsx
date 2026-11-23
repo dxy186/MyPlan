@@ -1,42 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
-import AchievementsScreen from './achievements';
-import AIScreen from './ai';
-import CalendarScreen from './calendar';
-import GoalsScreen from './goals';
-import HistoryScreen from './history';
-import WoopScreen from './woop';
-import BackupScreen from '../components/backup/BackupScreen';
 import AssistantScreen, { FOCUS_ASSISTANT_EVENT } from '../components/assistant/AssistantScreen';
+import CalendarScreen from '../components/screens/CalendarScreen';
+import ReviewScreen from '../components/screens/ReviewScreen';
+import SettingsScreen from '../components/screens/SettingsScreen';
+import TasksScreen from '../components/screens/TasksScreen';
 import ReminderService from '../components/assistant/ReminderService';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
-  { name: 'AI 秘书', key: 'assistant', icon: '🗣️' },
-  { name: '日历进度', key: 'calendar', icon: '📅' },
-  { name: 'SMART任务记录', key: 'goals', icon: '🎯' },
-  { name: 'AI 助手', key: 'ai', icon: '🤖' },
-  { name: 'WOOP向导', key: 'woop', icon: '🧭' },
-  { name: '勋章墙', key: 'achievements', icon: '🏆' },
-  { name: '历史任务', key: 'history', icon: '📜' },
-  { name: '数据备份', key: 'backup', icon: '💾' },
+  { name: '今天', key: 'today', icon: '🏠' },
+  { name: '任务', key: 'tasks', icon: '📋' },
+  { name: '日历', key: 'calendar', icon: '📅' },
+  { name: '复盘', key: 'review', icon: '📊' },
+  { name: '设置', key: 'settings', icon: '⚙️' },
 ];
 
 export default function RootLayout() {
-  const [activeKey, setActiveKey] = useState('assistant');
+  const [activeKey, setActiveKey] = useState('today');
   const { width } = useWindowDimensions();
 
   // 跳天时让整棵树重渲染，各页面里的「今天」才会跟着更新
   useTodayStr();
 
-  // Ctrl+K / ⌘K：随时跳到 AI 秘书并聚焦输入框
+  // Ctrl+K / ⌘K：随时跳到「今天」并聚焦 AI 输入框
   useEffect(() => {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setActiveKey('assistant');
+        setActiveKey('today');
         setTimeout(() => window.dispatchEvent(new Event(FOCUS_ASSISTANT_EVENT)), 50);
       }
     };
@@ -47,15 +41,11 @@ export default function RootLayout() {
 
   const renderPage = () => {
     switch (activeKey) {
-      case 'assistant': return <AssistantScreen />;
+      case 'tasks': return <TasksScreen />;
       case 'calendar': return <CalendarScreen />;
-      case 'goals': return <GoalsScreen />;
-      case 'ai': return <AIScreen />;
-      case 'woop': return <WoopScreen />;
-      case 'achievements': return <AchievementsScreen />;
-      case 'history': return <HistoryScreen />;
-      case 'backup': return <BackupScreen />;
-      default: return <CalendarScreen />;
+      case 'review': return <ReviewScreen />;
+      case 'settings': return <SettingsScreen />;
+      default: return <AssistantScreen />;
     }
   };
 

@@ -12,12 +12,15 @@ export default function HabitsCard({
   state,
   onMemoriesChanged,
   onAsk,
+  defaultOpen = false,
 }: {
   state: PlanState;
   onMemoriesChanged: (m: Memory[]) => void;
-  onAsk: (text: string) => void;
+  /** 让 AI 处理一句话（不传时「让 AI 忘掉」按钮不显示） */
+  onAsk?: (text: string) => void;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [insights, setInsights] = useState<HabitInsight[] | null>(null);
 
   useEffect(() => {
@@ -64,9 +67,11 @@ export default function HabitsCard({
         memories.map(m => (
           <View key={m.id} style={styles.memRow}>
             <Text style={styles.memText}>• {m.text}</Text>
-            <TouchableOpacity onPress={() => onAsk(`忘掉这条偏好：${m.text}`)}>
-              <Text style={styles.link}>让 AI 忘掉</Text>
-            </TouchableOpacity>
+            {onAsk && (
+              <TouchableOpacity onPress={() => onAsk(`忘掉这条偏好：${m.text}`)}>
+                <Text style={styles.link}>让 AI 忘掉</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => remove(m.id)}>
               <Text style={styles.del}>直接删除</Text>
             </TouchableOpacity>

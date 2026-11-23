@@ -1,10 +1,10 @@
 /**
- * AI 秘书首页的跟进卡片：正在做 / 下一项、到点提醒开关、自动补排、早上计划、晚上复盘
+ * 今天页的跟进卡片：正在做 / 下一项、到点提醒开关、自动补排、早上计划、晚上复盘
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { addDays, minutesToHM, todayStr } from '@/app/utils/planning';
+import { EnergyLog, KEYS, addDays, minutesToHM, randomId, saveJSON, todayStr } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 
 import {
@@ -31,6 +31,7 @@ import {
   saveReview,
   todayTasks,
 } from './followup';
+import { slotOfMinute } from './gap';
 import { AssistantAction, PlanState, applyActions, commitState, loadPlanState } from './plan-store';
 
 const TYPE_ICON: Record<string, string> = { task: '📝', fixed: '📌', play: '🎮', chore: '🧹' };
@@ -116,6 +117,50 @@ export function NowNextCard({ schedule }: { schedule: ScheduleResult | null }) {
           </Text>
         </TouchableOpacity>
       )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 一键记精力（3 小时内没打过卡时出现）
+// ---------------------------------------------------------------------------
+const QUICK_ENERGY: { label: string; score: number }[] = [
+  { label: '😴 有点累', score: 3 },
+  { label: '🙂 一般', score: 6 },
+  { label: '💪 精力好', score: 8.5 },
+];
+
+export function EnergyQuick({ state, onLogged }: { state: PlanState; onLogged: (logs: EnergyLog[]) => void }) {
+  const recent = state.energyLogs.some(l => Date.now() - new Date(l.createdAt).getTime() < 3 * 3600 * 1000);
+  if (recent) return null;
+  const log = async (score: number) => {
+    const now = new Date();
+    const entry: EnergyLog = {
+      id: randomId(),
+      date: todayStr(),
+      slot: slotOfMinute(now.getHours() * 60 + now.getMinutes()),
+      sleepQuality: score,
+      physical: score,
+      emotional: score,
+      cognitive: score,
+      meaning: score,
+      score,
+      note: '今天页一键记录',
+      createdAt: now.toISOString(),
+    };
+    const next = [entry, ...state.energyLogs];
+    await saveJSON(KEYS.energyLogs, next);
+    onLogged(next);
+  };
+  return (
+    <View style={styles.energyRow}>
+      <Text style={styles.energyLabel}>现在精力怎么样？</Text>
+      {QUICK_ENERGY.map(e => (
+        <TouchableOpacity key={e.label} style={styles.energyChip} onPress={() => log(e.score)}>
+          <Text style={styles.energyChipText}>{e.label}</Text>
+        </TouchableOpacity>
+      ))}
+      <Text style={styles.energyHint}>（用来挑任务和排时段；详细打卡在「复盘 → 精力」）</Text>
     </View>
   );
 }
@@ -327,6 +372,11 @@ const styles = StyleSheet.create({
   bellText: { fontSize: 13, color: '#1976D2', fontWeight: '600' },
   bellTextOn: { color: '#fff' },
   cardTitle: { fontSize: 17, fontWeight: '700', color: '#1a1a2e', marginBottom: 8 },
+  energyRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, maxWidth: 820 },
+  energyLabel: { fontSize: 14, color: '#455A64', marginRight: 8 },
+  energyChip: { borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10, marginRight: 6, backgroundColor: '#fff' },
+  energyChipText: { fontSize: 13, color: '#455A64' },
+  energyHint: { fontSize: 12, color: '#9AA4B2' },
   missedCard: { backgroundColor: '#F3F7F0', borderRadius: 12, borderWidth: 1, borderColor: '#C5E1A5', padding: 14, marginBottom: 14, maxWidth: 820 },
   missedRow: { fontSize: 14, color: '#333', marginBottom: 4, lineHeight: 20 },
   strong: { fontWeight: '700', color: '#2E7D32' },
