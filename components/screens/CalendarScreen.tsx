@@ -35,7 +35,6 @@ import { startTaskTimer } from '@/components/assistant/gap';
 import { allTasks } from '@/components/assistant/plan-store';
 
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
-import ScheduleOverview from './ScheduleOverview';
 
 // ---------- 数据 ----------
 // 日历里的事项就是统一任务列表里带截止日的任务（见 components/data/calendar-bridge.ts），
@@ -83,6 +82,10 @@ function CalendarMain() {
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
   // 自动排进各天的任务块（浅灰斜体显示，和自己写的事项区分）
   const [scheduled, setScheduled] = useState<ScheduleItem[]>([]);
+  // 完整排程（含玩的时间、休息日等块）和每天完成的任务
+  const [allBlocks, setAllBlocks] = useState<ScheduleItem[]>([]);
+  const [doneByDay, setDoneByDay] = useState<Record<string, string[]>>({});
+  const [showTimeline, setShowTimeline] = useState(false);
   const [unscheduledIds, setUnscheduledIds] = useState<Set<string>>(new Set());
   const [fixedEvents, setFixedEvents] = useState<FixedEvent[]>([]);
   const [reviewAt, setReviewAt] = useState(21 * 60);
@@ -135,6 +138,15 @@ function CalendarMain() {
       setCalendarItems(tasksToCalendarItems(st, styles));
       const sch = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
       setScheduled((sch?.items ?? []).filter(i => i.type === 'task' && !!i.taskId));
+      setAllBlocks((sch?.items ?? []).filter(i => i.type !== 'buffer'));
+      const done: Record<string, string[]> = {};
+      for (const r of allTasks(st.goals)) {
+        if (!r.task.done || !r.task.doneAt) continue;
+        const d = new Date(r.task.doneAt);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        (done[key] = done[key] || []).push(r.task.title);
+      }
+      setDoneByDay(done);
       setUnscheduledIds(new Set((sch?.unscheduled ?? []).map(t => t.id)));
       setFixedEvents(st.fixed);
       setReviewAt((await loadReminderSettings()).eveningReviewAt);
@@ -311,17 +323,33 @@ function CalendarMain() {
     setAddText('');
     const st = await loadPlanState();
     if (parsed.kind === 'fixed') {
-      // 「15:00-17:00 开组会」→ 固定日程，排程会避开这段时间
-      const { next, changes } = applyActions(st, [
-        { type: 'add_fixed_event', title: parsed.title, date, start: parsed.start, end: parsed.end, kind: 'other' },
-      ]);
-      if (!changes[0]?.ok) {
-        setAddHint(changes[0]?.summary || '没加上');
+      // 「15:00-17:00 开组会」→ 这天的固定日程；「每周二、四 8:00-10:00 高数课」→ 每周重复
+      const weekly = parsed.weekdays && parsed.weekdays.length > 0;
+      const { next, changes } = applyActions(
+        st,
+        weekly
+          ? (parsed.weekdays as number[]).map(w => ({
+              type: 'add_fixed_event' as const,
+              title: parsed.title,
+              weekday: w,
+              start: parsed.start,
+              end: parsed.end,
+              kind: 'other' as const,
+            }))
+          : [{ type: 'add_fixed_event', title: parsed.title, date, start: parsed.start, end: parsed.end, kind: 'other' }]
+      );
+      if (!changes.every(c => c.ok)) {
+        setAddHint(changes.find(c => !c.ok)?.summary || '没加上');
         return;
       }
       await commitState(next);
       await loadCalendarItems();
-      setAddHint(`📌 已作为固定日程：${parsed.start}–${parsed.end} ${parsed.title}`);
+      const WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
+      setAddHint(
+        weekly
+          ? `📌 已作为每周${(parsed.weekdays as number[]).map(w => WEEK_CN[w]).join('、')}的固定日程：${parsed.start}–${parsed.end} ${parsed.title}`
+          : `📌 已作为固定日程：${parsed.start}–${parsed.end} ${parsed.title}`
+      );
       return;
     }
     const title = parsed.title;
@@ -796,6 +824,38 @@ function CalendarMain() {
                       </View>
                     ))
                   )}
+                  {/* 完整时间轴（含玩的时间、休息日；排在截止后的标 ⚠️） */}
+                  {allBlocks.some(b => b.date === currentEditDate) && (
+                    <View style={styles.autoSection}>
+                      <TouchableOpacity onPress={() => setShowTimeline(!showTimeline)}>
+                        <Text style={styles.autoTitle}>
+                          {showTimeline ? '▾' : '▸'} 🕘 这天的完整时间轴
+                        </Text>
+                      </TouchableOpacity>
+                      {showTimeline &&
+                        allBlocks
+                          .filter(b => b.date === currentEditDate)
+                          .sort((a, b) => a.startMin - b.startMin)
+                          .map(b => (
+                            <Text key={b.id} style={styles.timelineLine} numberOfLines={2}>
+                              {minutesToHM(b.startMin)}–{minutesToHM(b.endMin)}　
+                              {b.type === 'task' ? '📝' : b.type === 'fixed' ? '📌' : b.type === 'play' ? '🎮' : b.type === 'rest' ? '🛌' : '·'} {b.title}
+                              {b.note ? <Text style={styles.slotWarn}>　⚠️ {b.note}</Text> : null}
+                            </Text>
+                          ))}
+                    </View>
+                  )}
+                  {/* 这天完成的（包括截止日在别的日子、但这天做完的） */}
+                  {(doneByDay[currentEditDate] ?? []).length > 0 && (
+                    <View style={styles.autoSection}>
+                      <Text style={styles.autoTitle}>✅ 这天完成的</Text>
+                      {(doneByDay[currentEditDate] ?? []).map((t, i) => (
+                        <Text key={i} style={styles.doneLine} numberOfLines={1}>
+                          ✓ {t}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
                   {/* 这天的固定日程 */}
                   {fixedFor(currentEditDate).length > 0 && (
                     <View style={styles.autoSection}>
@@ -840,7 +900,7 @@ function CalendarMain() {
                 <View style={styles.addContainer}>
                   <View style={styles.addRow}>
                     <TextInput
-                      placeholder="添加新事项：写报告 2小时 / !复习 90分钟 / 15:00-17:00 开组会"
+                      placeholder="添加：写报告 2小时 / !复习 90分钟 / 15:00-17:00 开组会 / 每周二、四 8:00-10:00 高数课"
                       value={addText}
                       style={[styles.addInput, { flex: 1 }]}
                       onChangeText={setAddText}
@@ -1062,6 +1122,8 @@ const styles = StyleSheet.create({
   startNextText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   startNextMeta: { color: '#C8E6C9', fontSize: 13, fontWeight: '400' },
   addHint: { fontSize: 12, color: '#2E7D32', marginTop: 6 },
+  timelineLine: { fontSize: 13, color: '#455A64', paddingVertical: 2, fontVariant: ['tabular-nums'] },
+  doneLine: { fontSize: 13, color: '#2E7D32', paddingVertical: 2 },
   playText: { color: '#1976D2', fontSize: 15 },
   autoSection: { marginTop: 10, paddingTop: 8, borderTopWidth: 0.6, borderColor: '#e6e6ed' },
   autoTitle: { fontSize: 13, color: '#888', marginBottom: 4 },
@@ -1123,17 +1185,11 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
 
-// ---------- 页面入口：「日历进度」+「双轨排程」（排程月视图 + 固定日程）+「今日记录」----------
+// ---------- 页面入口：「日历进度」（已包含排程和固定日程）+「今日记录」----------
 const CALENDAR_PAGE_TABS = [
   { key: 'main', label: '日历进度' },
-  { key: 'schedule', label: '双轨排程' },
   { key: 'energy', label: '今日记录' },
 ];
-
-// 「双轨排程」页 = 固定轨（课程 / 会议等固定日程）+ 弹性轨（自动排进空档的任务），按月看、按天管理
-function ScheduleTab() {
-  return <ScheduleOverview />;
-}
 
 export default function CalendarPage() {
   const [subTab, setSubTab] = useState('main');
@@ -1141,7 +1197,7 @@ export default function CalendarPage() {
     <View style={{ flex: 1 }}>
       <CalendarTopBar />
       <SubTabBar tabs={CALENDAR_PAGE_TABS} active={subTab} onChange={setSubTab} />
-      {subTab === 'main' ? <CalendarMain /> : subTab === 'schedule' ? <ScheduleTab /> : <EnergyPanel />}
+      {subTab === 'main' ? <CalendarMain /> : <EnergyPanel />}
     </View>
   );
 }
