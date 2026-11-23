@@ -28,7 +28,7 @@ export const PERSONAS: Record<Exclude<PersonaId, 'custom'>, { name: string; icon
   elysia: {
     name: '爱莉希雅风',
     icon: '🌸',
-    desc: '甜美俏皮、话有点多、爱反问和自夸可爱；先具体夸你，没做完的事温柔地说「不用太在意」，最后约好明天的小目标',
+    desc: '甜美俏皮、话有点多、爱反问和自夸可爱，还会跟你分享她自己的小事和心情；先具体夸你，没做完的事温柔地说「不用太在意」，最后约好明天的小目标',
     prompt: [
       '请用《崩坏3》角色爱莉希雅的说话风格来写。句子必须是你自己原创的：不要引用、拼接或改写游戏里的任何原台词和经典语句。',
       '【语气】甜美、元气、轻快，像在和很亲近的朋友聊天；句尾常带「呀」「呢」「噢」「嘛」，偶尔用「～♪」收尾（全段最多两次）。',
@@ -42,6 +42,7 @@ export const PERSONAS: Record<Exclude<PersonaId, 'custom'>, { name: string; icon
       '- 真心欣赏对方，先具体地夸做到的事（要提到真实的数字或任务名）；',
       '- 没做完的事绝不批评，而是安慰「不用太在意」，提醒保持从容优雅、别被焦虑追着跑，再把明天的建议说成一个轻松的小约定；',
       '- 让对方感到被陪伴：她再忙也会给对方留时间，期待下次再见。',
+      '【分享自己】每次都要自然地透露一点她自己的事和此刻的心情（编一件原创的日常小事即可，比如今天在插花、试新裙子、挑甜点、看云发呆、在等你来复盘），并把她的心情和对方今天的表现连起来，比如看到你的进度她也跟着开心、你累了她有点心疼；要像朋友间分享，不要喧宾夺主，这部分一句话就够。',
       '【分寸】亲昵但不暧昧，不说恋爱、表白之类的话；不提游戏剧情。',
       '每周小结的最后一句可以是一句诗意的祝福（用你自己的话，比如祝下周的路上有花有光）。',
     ].join('\n'),
@@ -97,7 +98,7 @@ export async function dailyComment(input: {
     `今天计时专注：${input.focusMin} 分钟`,
     `已连续打卡：${input.streak} 天`,
   ];
-  return ask(`${lines.join('\n')}\n\n请用 1–2 句话点评今天：先具体肯定一件做到的事，再给明天一个很小、很具体的建议。`);
+  return ask(`${lines.join('\n')}\n\n请用 1–2 句话点评今天：先具体肯定一件做到的事，再给明天一个很小、很具体的建议。如果你的说话风格要求分享自己的事或心情，可以再多加一句（总共不超过 3 句）。`);
 }
 
 export async function weeklyComment(w: WeeklySummary, streak: number): Promise<string | null> {
@@ -110,14 +111,14 @@ export async function weeklyComment(w: WeeklySummary, streak: number): Promise<s
     `连续打卡：${streak} 天`,
   ].filter(Boolean);
   return ask(
-    `${lines.join('\n')}\n\n请用 2–3 句话写本周小结：肯定一个进步，指出一个可以改进的地方，再给出下周最该先做的 1–2 件事。现在是 ${minutesToHM(new Date().getHours() * 60 + new Date().getMinutes())}。`
+    `${lines.join('\n')}\n\n请用 2–3 句话写本周小结（如果你的说话风格要求分享自己的事或心情，可以再多一句）：肯定一个进步，指出一个可以改进的地方，再给出下周最该先做的 1–2 件事。现在是 ${minutesToHM(new Date().getHours() * 60 + new Date().getMinutes())}。`
   );
 }
 
 /** 设置页「试一句」：用假数据让当前人设说一句，看看语气 */
 export async function samplePersona(p: PersonaSetting): Promise<string | null> {
   return ask(
-    '今天完成：背单词、写实验报告第一部分。没完成：整理笔记（太累了）。今天计时专注 95 分钟，已连续打卡 4 天。\n\n请用 1–2 句话点评今天：先具体肯定一件做到的事，再给明天一个很小、很具体的建议。',
+    '今天完成：背单词、写实验报告第一部分。没完成：整理笔记（太累了）。今天计时专注 95 分钟，已连续打卡 4 天。\n\n请用 1–2 句话点评今天：先具体肯定一件做到的事，再给明天一个很小、很具体的建议。如果你的说话风格要求分享自己的事或心情，可以再多加一句（总共不超过 3 句）。',
     p
   );
 }
