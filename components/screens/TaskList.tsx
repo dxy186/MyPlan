@@ -18,6 +18,7 @@ import {
   todayStr,
 } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
+import { DATA_CHANGED_EVENT, openBreakdown } from '@/components/assistant/breakdown';
 import { startTaskTimer } from '@/components/assistant/gap';
 import {
   AssistantAction,
@@ -212,6 +213,9 @@ export default function TaskList() {
   }, []);
   useEffect(() => {
     load();
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    window.addEventListener(DATA_CHANGED_EVENT, load);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, load);
   }, [load]);
 
   /** 改数据 → 保存 → 从现在起重排 */
@@ -500,6 +504,11 @@ export default function TaskList() {
                           {t.done && t.doneAt ? ` · ${t.doneAt.slice(5, 10)} 完成` : ''}
                         </Text>
                       </TouchableOpacity>
+                      {!t.done && (
+                        <TouchableOpacity style={styles.play} onPress={() => openBreakdown(t.id)}>
+                          <Text style={styles.playText}>🧩</Text>
+                        </TouchableOpacity>
+                      )}
                       {!t.done && (
                         <TouchableOpacity
                           style={styles.play}

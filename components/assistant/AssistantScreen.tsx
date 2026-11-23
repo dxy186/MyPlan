@@ -35,6 +35,7 @@ import {
 import GapPanel from './GapPanel';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
 import { takePendingAsk } from './ask-bridge';
+import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
@@ -144,6 +145,7 @@ function TaskEditor({
   onClose,
   onStart,
   onDelete,
+  onBreakdown,
 }: {
   task: PlanTask;
   spent: number;
@@ -153,6 +155,7 @@ function TaskEditor({
   onClose: () => void;
   onStart: () => void;
   onDelete: () => void;
+  onBreakdown: () => void;
 }) {
   const [cost, setCost] = useState<EnergyCost>(task.energyCost);
   const [minutes, setMinutes] = useState(String(task.estimateMin));
@@ -182,6 +185,9 @@ function TaskEditor({
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onStart}>
           <Text style={styles.smallSecondaryText}>▶ 开始计时</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onBreakdown}>
+          <Text style={styles.smallSecondaryText}>🧩 帮我拆</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onDone}>
           <Text style={styles.smallSecondaryText}>✅ 标记完成</Text>
@@ -290,12 +296,16 @@ export default function AssistantScreen() {
     }
   }, []);
 
-  // 有任务块刚结束（后台提醒服务发出的信号）：检查一下要不要补排
+  // 有任务块刚结束（后台提醒服务发出的信号）或别处改了数据（比如拆解）：刷新
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const onStale = () => reload();
     window.addEventListener(SCHEDULE_STALE_EVENT, onStale);
-    return () => window.removeEventListener(SCHEDULE_STALE_EVENT, onStale);
+    window.addEventListener(DATA_CHANGED_EVENT, onStale);
+    return () => {
+      window.removeEventListener(SCHEDULE_STALE_EVENT, onStale);
+      window.removeEventListener(DATA_CHANGED_EVENT, onStale);
+    };
   }, [reload]);
 
   useEffect(() => {
@@ -521,7 +531,7 @@ export default function AssistantScreen() {
           )}
           <Text style={styles.mutedSmall}>
             {shown.risk.message}
-            {!preview ? '  点任务块可以改耗能、时长、时段，开始计时、标记完成或删除。' : ''}
+            {!preview ? '  点任务块可以改耗能、时长、时段，开始计时、让 AI 帮你拆、标记完成或删除。' : ''}
           </Text>
           <View style={styles.days}>
             {[
@@ -552,6 +562,10 @@ export default function AssistantScreen() {
                         if (Platform.OS === 'web') window.scrollTo?.({ top: 0, behavior: 'smooth' });
                       }}
                       onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
+                      onBreakdown={() => {
+                        setSelected(null);
+                        openBreakdown(t.id);
+                      }}
                       onDelete={() => {
                         const ok =
                           Platform.OS !== 'web' ||

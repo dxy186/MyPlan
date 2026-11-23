@@ -317,8 +317,16 @@ export function generateSchedule(
     return used;
   };
 
+  // 每个任务排到的最后一段：有依赖的任务必须排在依赖做完之后
+  const lastEnd = new Map<string, { date: string; end: number }>();
+
   for (const task of ordered) {
     let remaining = calibrateEstimate(task.estimateMin, opts.speedFactor);
+    let depAfter: { date: string; end: number } | null = null;
+    for (const d of task.deps) {
+      const e = lastEnd.get(d);
+      if (e && (!depAfter || diffDays(depAfter.date, e.date) > 0 || (e.date === depAfter.date && e.end > depAfter.end))) depAfter = e;
+    }
     // 找候选日：不晚于 DDL
     const candidates = days.filter(d => {
       if (!task.due) return true;
@@ -350,10 +358,13 @@ export function generateSchedule(
       const box = remaining > opts.maxFocusMin ? opts.maxFocusMin : Math.max(opts.minFocusMin, remaining);
       let best: { day: string; gap: Interval; from: number; score: number } | null = null;
       for (const d of pass.list) {
+        // 依赖还没做完的日子不能排
+        if (depAfter && diffDays(depAfter.date, d) < 0) continue;
+        const depFloor = depAfter && depAfter.date === d ? depAfter.end + opts.breakMin : 0;
         const curve = curves.get(d) as Record<EnergySlotKey, number>;
         for (const g of gapsFor(d)) {
           // 有偏好时段时，只用空档与该时段重叠的部分
-          const from = win ? Math.max(g.start, win.start) : g.start;
+          const from = Math.max(win ? Math.max(g.start, win.start) : g.start, depFloor);
           const until = win ? Math.min(g.end, win.end) : g.end;
           const length = until - from;
           if (length < Math.min(box, opts.minFocusMin)) continue;
@@ -392,6 +403,10 @@ export function generateSchedule(
         dayGaps.set(best.day, gaps);
       }
       remaining -= used.end - used.start;
+      const prev = lastEnd.get(task.id);
+      if (!prev || diffDays(prev.date, best.day) > 0 || (prev.date === best.day && used.end > prev.end)) {
+        lastEnd.set(task.id, { date: best.day, end: used.end });
+      }
     }
     }
     if (remaining > 0 || missedDeadline) unscheduled.push(task);
