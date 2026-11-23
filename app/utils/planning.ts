@@ -323,8 +323,16 @@ export type PlanTask = {
   done: boolean; // 是否完成
   quality?: QualityTier; // 质量弹性等级
   intention?: ImplementationIntention;
+  /** 不早于这天开始（YYYY-MM-DD），例如「下周再做」 */
+  notBefore?: string;
+  /** 偏好时段：上午 / 下午 / 晚上 */
+  window?: TaskWindow;
+  /** 补充说明（AI 秘书记录的背景） */
+  note?: string;
   createdAt: string;
 };
+
+export type TaskWindow = 'morning' | 'afternoon' | 'evening';
 
 export type Milestone = {
   id: string;
