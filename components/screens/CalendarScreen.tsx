@@ -22,8 +22,6 @@ import {
   saveCalendarStyles,
   tasksToCalendarItems,
 } from '@/components/data/calendar-bridge';
-import EnergyPanel from '@/components/secretary/EnergyPanel';
-import SubTabBar from '@/components/secretary/SubTabBar';
 import { useTodayStr } from '@/hooks/use-today';
 
 import { FixedEvent, KEYS, addDays, loadJSON, minutesToHM, weekdayOf } from '@/app/utils/planning';
@@ -1213,19 +1211,12 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
 
-// ---------- 页面入口：「日历进度」（已包含排程和固定日程）+「今日记录」----------
-const CALENDAR_PAGE_TABS = [
-  { key: 'main', label: '日历进度' },
-  { key: 'energy', label: '今日记录' },
-];
-
+// ---------- 页面入口：日历（已包含排程和固定日程）；精力打卡在「复盘 → 精力」----------
 export default function CalendarPage() {
-  const [subTab, setSubTab] = useState('main');
   return (
     <View style={{ flex: 1 }}>
       <CalendarTopBar />
-      <SubTabBar tabs={CALENDAR_PAGE_TABS} active={subTab} onChange={setSubTab} />
-      {subTab === 'main' ? <CalendarMain /> : <EnergyPanel />}
+      <CalendarMain />
     </View>
   );
 }
