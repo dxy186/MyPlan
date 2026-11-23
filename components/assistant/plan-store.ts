@@ -530,7 +530,12 @@ function refsAll(state: PlanState) {
   return allTasks(state.goals).map(r => r.task);
 }
 
-export function buildContext(state: PlanState, schedule: ScheduleResult | null, now = new Date()): string {
+export function buildContext(
+  state: PlanState,
+  schedule: ScheduleResult | null,
+  now = new Date(),
+  habits = ''
+): string {
   const today = todayStr();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const spent = spentByTask(state.timeLogs);
@@ -538,6 +543,7 @@ export function buildContext(state: PlanState, schedule: ScheduleResult | null, 
   lines.push(`现在：${today} ${WEEKDAY_CN[weekdayOf(today)]} ${minutesToHM(nowMin)}`);
   const sf = speedFactor(state.timeLogs, refsAll(state));
   lines.push(`速率系数：${sf}（实际耗时 ≈ 预估 × ${sf}，来自历史时间记录）`);
+  if (habits) lines.push(habits);
   const gold = goldenSlots(predictCurve(state.energyLogs, today)).map(slotLabel);
   if (gold.length) lines.push(`精力最好的时段：${gold.join('、')}`);
 
@@ -622,4 +628,5 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书，帮他把要�
 7. 日期用 YYYY-MM-DD，根据「现在」推算「明天」「周五」等。
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
 9. 不要重复添加已存在的任务——是否存在只看「当前数据」。
-10. 对话历史里你说过的安排不一定生效了（用户可能没点确认）。一切以「当前数据」为准：用户要做的事如果当前数据里没有，就重新添加，不要说「已经加过了」。`;
+10. 对话历史里你说过的安排不一定生效了（用户可能没点确认）。一切以「当前数据」为准：用户要做的事如果当前数据里没有，就重新添加，不要说「已经加过了」。
+11. 如果数据里有「近 N 天复盘」：常见「估少了」就把预估再放宽；常见「太累了」就少排高耗能、多留休息；常见「被打断」就把任务切得更小。`;
