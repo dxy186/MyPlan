@@ -5,7 +5,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { computeStreak } from '@/components/data/streak';
 import { WeeklySummary, buildWeekly, loadWeeklies, saveWeekly, weekToReview } from '@/components/data/weekly';
 
-import { weeklyComment } from './coach';
+import { PersonaSetting, loadPersona, personaLabel, weeklyComment } from './coach';
 import { loadReviews } from './followup';
 import { PlanState } from './plan-store';
 
@@ -26,6 +26,10 @@ export default function WeeklyCard({ state, force }: { state: PlanState; force?:
   const [loading, setLoading] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [streak, setStreak] = useState(0);
+  const [persona, setPersona] = useState<PersonaSetting>({ id: 'coach' });
+  useEffect(() => {
+    loadPersona().then(setPersona);
+  }, []);
 
   useEffect(() => {
     const ws = weekToReview();
@@ -34,7 +38,10 @@ export default function WeeklyCard({ state, force }: { state: PlanState; force?:
       const all = await loadWeeklies();
       const saved = all.find(x => x.weekStart === ws);
       if (saved?.seenAt && !force) return;
-      const fresh = { ...buildWeekly(state.goals, state.timeLogs, ws), comment: saved?.comment };
+      const ps = await loadPersona();
+      // 换了语气（比如换成爱莉希雅风）就重写点评
+      const keep = saved?.comment && (saved.commentBy ?? 'coach') === ps.id;
+      const fresh = { ...buildWeekly(state.goals, state.timeLogs, ws), comment: keep ? saved!.comment : undefined, commentBy: keep ? ps.id : undefined };
       const st = computeStreak(state.goals, (await loadReviews()).map(r => r.date)).current;
       setStreak(st);
       setW(fresh);
@@ -43,7 +50,7 @@ export default function WeeklyCard({ state, force }: { state: PlanState; force?:
         const c = await weeklyComment(fresh, st);
         setLoading(false);
         if (c) {
-          const withC = { ...fresh, comment: c };
+          const withC = { ...fresh, comment: c, commentBy: ps.id };
           setW(withC);
           await saveWeekly(withC);
         }
@@ -90,10 +97,12 @@ export default function WeeklyCard({ state, force }: { state: PlanState; force?:
       {loading ? (
         <View style={styles.row}>
           <ActivityIndicator size="small" />
-          <Text style={styles.muted}>　AI 正在写小结…</Text>
+          <Text style={styles.muted}>　AI 正在写小结…（{persona.id === 'elysia' ? '爱莉希雅在想怎么夸你' : '稍等'}）</Text>
         </View>
       ) : w.comment ? (
-        <Text style={styles.comment}>💬 {w.comment}</Text>
+        <Text style={styles.comment}>
+          {persona.id === 'coach' ? '💬' : personaLabel(persona) + '：'} {w.comment}
+        </Text>
       ) : null}
       <TouchableOpacity
         style={styles.btn}

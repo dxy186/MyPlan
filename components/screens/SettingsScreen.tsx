@@ -14,6 +14,7 @@ import {
   saveReminderSettings,
 } from '@/components/assistant/followup';
 import { commitState, loadPlanState } from '@/components/assistant/plan-store';
+import { PERSONAS, PersonaSetting, loadPersona, personaLabel, samplePersona, savePersona } from '@/components/assistant/coach';
 import BackupScreen from '@/components/backup/BackupScreen';
 import { DEFAULT_SETTINGS, ScheduleSettings, loadScheduleSettings, saveScheduleSettings } from '@/components/data/settings';
 import SubTabBar from '@/components/secretary/SubTabBar';
@@ -196,7 +197,80 @@ function AiSettingsPanel() {
         </View>
         {msg ? <Text style={msg.startsWith('❌') ? styles.err : styles.ok}>{msg}</Text> : null}
       </View>
+      <PersonaCard />
     </ScrollView>
+  );
+}
+
+/** 每晚复盘点评、每周小结用什么语气 */
+function PersonaCard() {
+  const [p, setP] = useState<PersonaSetting | null>(null);
+  const [sample, setSample] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    loadPersona().then(setP);
+  }, []);
+  if (!p) return null;
+  const pick = async (next: PersonaSetting) => {
+    setP(next);
+    setSample('');
+    await savePersona(next);
+  };
+  const tryOne = async () => {
+    setBusy(true);
+    setSample('');
+    const r = await samplePersona(p);
+    setBusy(false);
+    setSample(r ? `${personaLabel(p)}：${r}` : '❌ 没拿到回复：先在上面填好 AI Key 并测试连接');
+  };
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>🎭 点评的语气</Text>
+      <Text style={styles.muted}>晚上复盘后的点评、每周小结都用这个语气写。只改说话风格，数字和建议照旧按你的真实数据来。</Text>
+      <View style={[styles.row, { flexWrap: 'wrap', marginTop: 8 }]}>
+        {(Object.keys(PERSONAS) as (keyof typeof PERSONAS)[]).map(id => (
+          <TouchableOpacity key={id} style={[styles.chip, p.id === id && styles.chipOn]} onPress={() => pick({ ...p, id })}>
+            <Text style={[styles.chipText, p.id === id && styles.chipTextOn]}>
+              {PERSONAS[id].icon} {PERSONAS[id].name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={[styles.chip, p.id === 'custom' && styles.chipOn]} onPress={() => pick({ ...p, id: 'custom' })}>
+          <Text style={[styles.chipText, p.id === 'custom' && styles.chipTextOn]}>✏️ 自定义</Text>
+        </TouchableOpacity>
+      </View>
+      {p.id !== 'custom' ? (
+        <Text style={[styles.muted, { marginTop: 6 }]}>{PERSONAS[p.id].desc}</Text>
+      ) : (
+        <>
+          <Field label="显示的名字">
+            <TextInput
+              style={[styles.input, { width: 200 }]}
+              value={p.customName ?? ''}
+              onChangeText={v => setP({ ...p, customName: v })}
+              onBlur={() => savePersona(p)}
+              placeholder="比如：学姐"
+              placeholderTextColor="#aaa"
+            />
+          </Field>
+          <TextInput
+            style={[styles.input, { minHeight: 90, textAlignVertical: 'top', marginTop: 6 }]}
+            multiline
+            value={p.custom ?? ''}
+            onChangeText={v => setP({ ...p, custom: v })}
+            onBlur={() => savePersona(p)}
+            placeholder="描述你想要的说话风格，比如：像一个毒舌但心软的学姐，先吐槽一句再认真鼓励…"
+            placeholderTextColor="#aaa"
+          />
+        </>
+      )}
+      <View style={[styles.row, { marginTop: 8 }]}>
+        <TouchableOpacity style={[styles.btnGhost, busy && styles.disabled]} disabled={busy} onPress={tryOne}>
+          <Text style={styles.btnGhostText}>{busy ? '正在想…' : '🎧 试一句看看'}</Text>
+        </TouchableOpacity>
+      </View>
+      {sample ? <Text style={[styles.muted, { marginTop: 6, color: sample.startsWith('❌') ? '#C62828' : '#1a1a2e', lineHeight: 20 }]}>{sample}</Text> : null}
+    </View>
   );
 }
 

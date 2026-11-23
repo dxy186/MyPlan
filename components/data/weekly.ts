@@ -14,6 +14,7 @@ export type WeeklySummary = {
   overdue: number;
   nextWeek: string[]; // 下周截止的任务
   comment?: string; // AI 点评
+  commentBy?: string; // 写点评时用的人设
   seenAt?: string;
 };
 
