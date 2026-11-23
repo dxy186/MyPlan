@@ -359,16 +359,14 @@ function CalendarMain() {
     setShowRenameFor(item.id);
   };
 
-  // 单击事项文本框 → 改日期；双击 → 进入文本框自由输入
+  // 单击事项名称不做任何事；双击 → 进入文本框重命名
   const handleItemTitlePress = (item: CalendarItem) => {
     const now = Date.now();
     const gap = now - lastItemTapRef.current;
     lastItemTapRef.current = now;
     if (gap < 300) {
-      setShowDatePickerFor(null);
+      lastItemTapRef.current = 0;
       openRename(item);
-    } else {
-      setShowDatePickerFor(item.id);
     }
   };
 
