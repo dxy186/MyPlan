@@ -411,6 +411,10 @@ export async function saveState(state: PlanState): Promise<void> {
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
     [MEMORIES_KEY, JSON.stringify(state.memories ?? [])],
   ]);
+  // 任何地方改了任务（勾完成、AI 调整、复盘…）都通知日历刷新，做完的马上划掉
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    setTimeout(() => window.dispatchEvent(new Event('myplan:data-changed')), 0);
+  }
 }
 
 /** 保存应用后的状态，并从现在起重新排程 */
