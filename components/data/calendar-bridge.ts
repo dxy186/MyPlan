@@ -49,7 +49,8 @@ export async function saveCalendarStyles(styles: Record<string, CalendarStyle>) 
 /** 统一任务 → 日历事项（只有带截止日的任务会出现在日历格子里） */
 export function tasksToCalendarItems(state: PlanState, styles: Record<string, CalendarStyle>): CalendarItem[] {
   return allTasks(state.goals)
-    .filter(r => !!r.task.due)
+    // 被拆开的父任务不在日历里重复显示，它的子任务各自出现在自己那天
+    .filter(r => !!r.task.due && !r.task.split)
     .map(r => ({
       id: r.task.id,
       title: r.task.title,

@@ -98,7 +98,7 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
   // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下
   const cats = categoryFactors(state.timeLogs, state.goals);
   const pending = allTasks(state.goals)
-    .filter(r => !r.task.done)
+    .filter(r => !r.task.done && !r.task.split)
     .map(r => ({
       ...r.task,
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
@@ -271,6 +271,7 @@ export function applyActions(
           if (!ref) throw new Error('找不到这个任务');
           ref.task.done = true;
           ref.task.doneAt = new Date().toISOString();
+          setChildrenDone(next.goals, ref.task.id, true);
           markGoalCompletion(ref.goal);
           changes.push({ action: a, ok: true, summary: `✅ 完成「${ref.task.title}」` });
           break;
@@ -279,7 +280,8 @@ export function applyActions(
           const ref = find(a.taskId);
           if (!ref) throw new Error('找不到这个任务');
           const m = ref.goal.milestones[ref.milestoneIdx];
-          m.tasks = m.tasks.filter(t => t.id !== ref.task.id);
+          const kill = new Set([ref.task.id, ...descendantIds(next.goals, ref.task.id)]);
+          m.tasks = m.tasks.filter(t => !kill.has(t.id));
           changes.push({ action: a, ok: true, summary: `🗑️ 删除「${ref.task.title}」` });
           break;
         }
@@ -345,8 +347,65 @@ export function markGoalCompletion(goal: Goal) {
   else delete goal.completedAt;
 }
 
+/** 某任务的所有后代（子任务、子任务的子任务…） */
+export function descendantIds(goals: Goal[], id: string): string[] {
+  const all = allTasks(goals).map(r => r.task);
+  const out: string[] = [];
+  const walk = (pid: string) => {
+    for (const t of all) if (t.parentId === pid && !out.includes(t.id)) {
+      out.push(t.id);
+      walk(t.id);
+    }
+  };
+  walk(id);
+  return out;
+}
+
+/** 勾选 / 取消父任务时，子任务一起变 */
+export function setChildrenDone(goals: Goal[], parentId: string, done: boolean) {
+  const ids = new Set(descendantIds(goals, parentId));
+  const now = new Date().toISOString();
+  for (const r of allTasks(goals)) {
+    if (!ids.has(r.task.id)) continue;
+    if (done && !r.task.done) {
+      r.task.done = true;
+      r.task.doneAt = now;
+    } else if (!done && r.task.done) {
+      r.task.done = false;
+      delete r.task.doneAt;
+    }
+  }
+}
+
+/** 父任务的完成状态跟随子任务；子任务全删掉了就变回普通任务 */
+export function syncParentTasks(goals: Goal[]) {
+  const all = allTasks(goals).map(r => r.task);
+  // 从最深的父任务往上算
+  const parents = all.filter(t => t.split);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const p of parents) {
+      const kids = all.filter(t => t.parentId === p.id);
+      if (kids.length === 0) {
+        p.split = false;
+        continue;
+      }
+      const done = kids.every(k => k.done);
+      if (done && !p.done) {
+        p.done = true;
+        p.doneAt = kids.map(k => k.doneAt || '').sort().pop() || new Date().toISOString();
+      } else if (!done && p.done) {
+        p.done = false;
+        delete p.doneAt;
+      }
+      p.estimateMin = kids.reduce((s, k) => s + k.estimateMin, 0);
+    }
+  }
+  goals.forEach(markGoalCompletion);
+}
+
 /** 只保存数据，不重新排程 */
 export async function saveState(state: PlanState): Promise<void> {
+  syncParentTasks(state.goals);
   await setMany([
     [KEYS.goals, JSON.stringify(state.goals)],
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
@@ -371,7 +430,7 @@ export type OverrunInfo = { task: PlanTask; goal: Goal; spent: number; over: num
 export function overrunTasks(state: PlanState): OverrunInfo[] {
   const spent = spentByTask(state.timeLogs);
   return allTasks(state.goals)
-    .filter(r => !r.task.done)
+    .filter(r => !r.task.done && !r.task.split)
     .map(r => ({ task: r.task, goal: r.goal, spent: spent.get(r.task.id) ?? 0 }))
     .filter(x => x.spent > 0 && x.spent >= x.task.estimateMin)
     .map(x => ({ ...x, over: x.spent - x.task.estimateMin }));
@@ -424,6 +483,7 @@ export async function setTaskDone(taskId: string, done: boolean): Promise<PlanSt
   ref.task.done = done;
   if (done) ref.task.doneAt = new Date().toISOString();
   else delete ref.task.doneAt;
+  if (ref.task.split) setChildrenDone(state.goals, taskId, done);
   markGoalCompletion(ref.goal);
   await saveState(state);
   return state;
@@ -455,7 +515,8 @@ export function buildContext(
 
   lines.push('', '## 未完成任务（id | 任务 | 所属目标 | 预估分钟 | 已投入分钟 | 耗能 | 截止 | 其他）');
   const refs = allTasks(state.goals);
-  const pending = refs.filter(r => !r.task.done);
+  const pending = refs.filter(r => !r.task.done && !r.task.split);
+  const titleById = new Map(refs.map(r => [r.task.id, r.task.title]));
   pending
     .sort((a, b) => (a.task.due || '9999').localeCompare(b.task.due || '9999'))
     .slice(0, 80)
@@ -464,7 +525,7 @@ export function buildContext(
         .filter(Boolean)
         .join(' ');
       lines.push(
-        `${t.id} | ${t.title} | ${goal.title} | ${t.estimateMin} | ${spent.get(t.id) ?? 0} | ${t.energyCost} | ${t.due || '无'} | ${extra}`
+        `${t.id} | ${t.title}${t.parentId && titleById.has(t.parentId) ? `（「${titleById.get(t.parentId)}」的子任务）` : ''} | ${goal.title} | ${t.estimateMin} | ${spent.get(t.id) ?? 0} | ${t.energyCost} | ${t.due || '无'} | ${extra}`
       );
     });
   if (pending.length === 0) lines.push('（没有）');

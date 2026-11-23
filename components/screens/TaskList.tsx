@@ -28,6 +28,7 @@ import {
   commitState,
   loadPlanState,
   markGoalCompletion,
+  setChildrenDone,
   spentByTask,
 } from '@/components/assistant/plan-store';
 
@@ -194,6 +195,8 @@ export default function TaskList() {
   const [quad, setQuad] = useState<Quadrant | 'all' | 'none'>('all');
   const [editing, setEditing] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // 拆开的父任务默认展开，点 ▾ 收起
+  const [foldedParents, setFoldedParents] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   // 快速添加
@@ -252,6 +255,7 @@ export default function TaskList() {
       t.done = !t.done;
       if (t.done) t.doneAt = new Date().toISOString();
       else delete t.doneAt;
+      if (t.split) setChildrenDone(s.goals, t.id, t.done);
       markGoalCompletion(g);
       return t.done ? `✅ 完成「${t.title}」` : `↩️ 「${t.title}」改回未完成`;
     });
@@ -344,7 +348,12 @@ export default function TaskList() {
     const qOrder = (g: Goal) => (g.quadrant ? QUADRANTS.findIndex(x => x.key === g.quadrant) : 9);
     return state.goals
       .filter(matchQuad)
-      .map(g => ({ goal: g, tasks: g.milestones.flatMap(m => m.tasks).filter(matchView) }))
+      .map(g => {
+        const all = g.milestones.flatMap(m => m.tasks);
+        const kidsOf = (id: string) => all.filter(t => t.parentId === id);
+        const anyMatch = (t: PlanTask): boolean => matchView(t) || kidsOf(t.id).some(anyMatch);
+        return { goal: g, tasks: all.filter(anyMatch) };
+      })
       .filter(x => x.tasks.length > 0 || (view === 'all' && x.goal.milestones.flatMap(m => m.tasks).every(t => !t.done) && x.goal.id !== DAILY_GOAL_ID))
       .sort(
         (a, b) =>
@@ -485,55 +494,90 @@ export default function TaskList() {
               </View>
             )}
             {!isCollapsed &&
-              tasks.map(t => {
-                const used = spent.get(t.id) ?? 0;
-                const first = scheduledOn.get(t.id);
-                return (
-                  <View key={t.id}>
-                    <View style={styles.taskRow}>
-                      <TouchableOpacity onPress={() => toggleDone(t, goal)} disabled={busy}>
-                        <Text style={styles.check}>{t.done ? '✅' : '⬜'}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditing(editing === t.id ? null : t.id)}>
-                        <Text style={[styles.taskTitle, t.done && styles.taskDone]}>{t.title}</Text>
-                        <Text style={styles.taskMeta}>
-                          {COST_ICON[t.energyCost]} {t.estimateMin} 分钟
-                          {used ? ` · 已做 ${used} 分钟` : ''}
-                          {t.due ? ` · ${dueLabel(t.due)}` : ''}
-                          {!t.done && first ? ` · 排在 ${first === today ? '今天' : first.slice(5)}` : ''}
-                          {t.done && t.doneAt ? ` · ${t.doneAt.slice(5, 10)} 完成` : ''}
-                        </Text>
-                      </TouchableOpacity>
-                      {!t.done && (
-                        <TouchableOpacity style={styles.play} onPress={() => openBreakdown(t.id)}>
-                          <Text style={styles.playText}>🧩</Text>
+              (() => {
+                const shown = new Set(tasks.map(t => t.id));
+                const kidsOf = (id: string) => tasks.filter(t => t.parentId === id);
+                const tops = tasks.filter(t => !t.parentId || !shown.has(t.parentId));
+                const renderTask = (t: PlanTask, depth: number): React.ReactNode => {
+                  const used = spent.get(t.id) ?? 0;
+                  const first = scheduledOn.get(t.id);
+                  const kids = kidsOf(t.id);
+                  const allKids = all.filter(k => k.parentId === t.id);
+                  const kidsDone = allKids.filter(k => k.done).length;
+                  const folded = !!foldedParents[t.id];
+                  return (
+                    <View key={t.id}>
+                      <View style={[styles.taskRow, depth > 0 && { marginLeft: depth * 26, borderTopColor: '#F7F8FA' }]}>
+                        {t.split ? (
+                          <TouchableOpacity onPress={() => setFoldedParents({ ...foldedParents, [t.id]: !folded })}>
+                            <Text style={styles.fold}>{folded ? '▸' : '▾'}</Text>
+                          </TouchableOpacity>
+                        ) : depth > 0 ? (
+                          <Text style={styles.branch}>└</Text>
+                        ) : null}
+                        <TouchableOpacity onPress={() => toggleDone(t, goal)} disabled={busy}>
+                          <Text style={styles.check}>{t.done ? '✅' : '⬜'}</Text>
                         </TouchableOpacity>
-                      )}
-                      {!t.done && (
-                        <TouchableOpacity
-                          style={styles.play}
-                          onPress={async () => {
-                            await startTaskTimer(t);
-                            setMsg(`⏱ 已开始计时「${t.title}」，在「🏠 今天」最上面能看到计时和结束按钮。`);
+                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditing(editing === t.id ? null : t.id)}>
+                          <Text style={[styles.taskTitle, t.split && styles.parentTitle, t.done && styles.taskDone]}>{t.title}</Text>
+                          <Text style={styles.taskMeta}>
+                            {t.split ? (
+                              <>
+                                🧩 已拆成 {allKids.length} 步 · 完成 {kidsDone}/{allKids.length} · 共约 {t.estimateMin} 分钟
+                                {t.due ? ` · ${dueLabel(t.due)}` : ''}
+                              </>
+                            ) : (
+                              <>
+                                {COST_ICON[t.energyCost]} {t.estimateMin} 分钟
+                                {used ? ` · 已做 ${used} 分钟` : ''}
+                                {t.due ? ` · ${depth > 0 && t.notBefore === t.due ? `${t.due.slice(5)} 做` : dueLabel(t.due)}` : ''}
+                                {!t.done && first ? ` · 排在 ${first === today ? '今天' : first.slice(5)}` : ''}
+                                {t.done && t.doneAt ? ` · ${t.doneAt.slice(5, 10)} 完成` : ''}
+                              </>
+                            )}
+                          </Text>
+                          {t.split && allKids.length > 0 && (
+                            <View style={styles.miniBar}>
+                              <View style={[styles.miniBarFill, { width: `${Math.round((kidsDone / allKids.length) * 100)}%` as unknown as number }]} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                        {!t.done && (
+                          <TouchableOpacity style={styles.play} onPress={() => openBreakdown(t.id)}>
+                            <Text style={styles.playText}>🧩</Text>
+                          </TouchableOpacity>
+                        )}
+                        {!t.done && !t.split && (
+                          <TouchableOpacity
+                            style={styles.play}
+                            onPress={async () => {
+                              await startTaskTimer(t);
+                              setMsg(`⏱ 已开始计时「${t.title}」，在「🏠 今天」最上面能看到计时和结束按钮。`);
+                            }}
+                          >
+                            <Text style={styles.playText}>▶</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {editing === t.id && (
+                        <TaskEditor
+                          task={t}
+                          onClose={() => setEditing(null)}
+                          onSave={runAction}
+                          onDelete={() => {
+                            const msgText = t.split
+                              ? `删除「${t.title}」和它的 ${allKids.length} 个子任务？`
+                              : `删除任务「${t.title}」？`;
+                            if (confirmBox(msgText)) runAction({ type: 'delete_task', taskId: t.id });
                           }}
-                        >
-                          <Text style={styles.playText}>▶</Text>
-                        </TouchableOpacity>
+                        />
                       )}
+                      {t.split && !folded && kids.map(k => renderTask(k, depth + 1))}
                     </View>
-                    {editing === t.id && (
-                      <TaskEditor
-                        task={t}
-                        onClose={() => setEditing(null)}
-                        onSave={runAction}
-                        onDelete={() => {
-                          if (confirmBox(`删除任务「${t.title}」？`)) runAction({ type: 'delete_task', taskId: t.id });
-                        }}
-                      />
-                    )}
-                  </View>
-                );
-              })}
+                  );
+                };
+                return tops.map(t => renderTask(t, 0));
+              })()}
           </View>
         );
       })}
@@ -585,6 +629,11 @@ const styles = StyleSheet.create({
   check: { fontSize: 18, marginRight: 10 },
   taskTitle: { fontSize: 15, color: '#1a1a2e' },
   taskDone: { color: '#9E9E9E', textDecorationLine: 'line-through' },
+  parentTitle: { fontWeight: '700' },
+  fold: { fontSize: 14, color: '#1976D2', width: 18 },
+  branch: { fontSize: 13, color: '#B0BEC5', width: 18 },
+  miniBar: { height: 3, backgroundColor: '#EEF1F5', borderRadius: 2, marginTop: 4, overflow: 'hidden', maxWidth: 220 },
+  miniBarFill: { height: 3, backgroundColor: '#43A047' },
   taskMeta: { fontSize: 12, color: '#888', marginTop: 2 },
   play: { backgroundColor: '#E8F1FC', borderRadius: 14, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   playText: { color: '#1976D2', fontSize: 13 },
