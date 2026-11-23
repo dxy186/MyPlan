@@ -26,9 +26,11 @@ import EnergyPanel from '@/components/secretary/EnergyPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import { useTodayStr } from '@/hooks/use-today';
 
-import { KEYS, loadJSON, minutesToHM } from '@/app/utils/planning';
+import { FixedEvent, KEYS, addDays, loadJSON, minutesToHM, weekdayOf } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import { askAi } from '@/components/assistant/ask-bridge';
+import { loadReminderSettings } from '@/components/assistant/followup';
+import { quickParse } from '@/components/data/quick-parse';
 import { startTaskTimer } from '@/components/assistant/gap';
 import { allTasks } from '@/components/assistant/plan-store';
 
@@ -61,6 +63,11 @@ function randomId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString().slice(-5);
 }
 
+function nowMinute() {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
 // 列表已按「未完成在前」排序，同完成状态的事项是连续的一段
 function isFirstInStatus(list: CalendarItem[], index: number): boolean {
   return index === 0 || list[index - 1].completed !== list[index].completed;
@@ -76,7 +83,11 @@ function CalendarMain() {
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
   // 自动排进各天的任务块（浅灰斜体显示，和自己写的事项区分）
   const [scheduled, setScheduled] = useState<ScheduleItem[]>([]);
+  const [unscheduledIds, setUnscheduledIds] = useState<Set<string>>(new Set());
+  const [fixedEvents, setFixedEvents] = useState<FixedEvent[]>([]);
+  const [reviewAt, setReviewAt] = useState(21 * 60);
   const [aiText, setAiText] = useState('');
+  const [addHint, setAddHint] = useState('');
   const [dateBgColors, setDateBgColors] = useState<Record<string, string | null>>({}); // null 表示透明
   const [modalVisible, setModalVisible] = useState(false);
   const [bgColorSettingsVisible, setBgColorSettingsVisible] = useState(false); // 背景色调色盘
@@ -124,6 +135,9 @@ function CalendarMain() {
       setCalendarItems(tasksToCalendarItems(st, styles));
       const sch = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
       setScheduled((sch?.items ?? []).filter(i => i.type === 'task' && !!i.taskId));
+      setUnscheduledIds(new Set((sch?.unscheduled ?? []).map(t => t.id)));
+      setFixedEvents(st.fixed);
+      setReviewAt((await loadReminderSettings()).eveningReviewAt);
       if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event(SCHEDULE_UPDATED_EVENT));
     } catch {}
   };
@@ -140,6 +154,32 @@ function CalendarMain() {
       } else byTask.set(i.taskId, { taskId: i.taskId, title: i.title, start: i.startMin, end: i.endMin, minutes: i.endMin - i.startMin });
     }
     return [...byTask.values()].sort((a, b) => a.start - b.start);
+  };
+
+  /** 某天的固定日程（单日 + 每周重复） */
+  const fixedFor = (dateStr: string) => {
+    const wd = weekdayOf(dateStr);
+    return fixedEvents.filter(e => (e.date ? e.date === dateStr : e.weekday === wd)).sort((a, b) => a.startMin - b.startMin);
+  };
+
+  /** 任务排在哪天几点（第一段） */
+  const firstBlock = (taskId: string) =>
+    scheduled
+      .filter(i => i.taskId === taskId)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin)[0];
+
+  const deleteFixed = async (ev: FixedEvent) => {
+    if (ev.weekday !== undefined && typeof window !== 'undefined' && !window.confirm(`「${ev.title}」是每周重复的，删除后每周都没有了，确定吗？`)) return;
+    const st = await loadPlanState();
+    st.fixed = st.fixed.filter(x => x.id !== ev.id);
+    await commitState(st);
+    await loadCalendarItems();
+  };
+
+  /** 晚上复盘 / 过期事项：挪到别的日子 */
+  const moveItemTo = async (itemId: string, date: string) => {
+    await updateItem(itemId, { date });
+    await loadCalendarItems();
   };
 
   /** 弹窗里点 ▶：给这个任务开始计时，日历顶部会显示计时 */
@@ -266,17 +306,34 @@ function CalendarMain() {
       alert('请先选择一个日期');
       return;
     }
-    const title = addText.trim();
+    const parsed = quickParse(addText);
     const date = currentEditDate;
     setAddText('');
-    // 作为「日常安排」里的一个小任务，截止日就是这一天
     const st = await loadPlanState();
+    if (parsed.kind === 'fixed') {
+      // 「15:00-17:00 开组会」→ 固定日程，排程会避开这段时间
+      const { next, changes } = applyActions(st, [
+        { type: 'add_fixed_event', title: parsed.title, date, start: parsed.start, end: parsed.end, kind: 'other' },
+      ]);
+      if (!changes[0]?.ok) {
+        setAddHint(changes[0]?.summary || '没加上');
+        return;
+      }
+      await commitState(next);
+      await loadCalendarItems();
+      setAddHint(`📌 已作为固定日程：${parsed.start}–${parsed.end} ${parsed.title}`);
+      return;
+    }
+    const title = parsed.title;
     const before = new Set(st.goals.flatMap(g => g.milestones.flatMap(m => m.tasks.map(t => t.id))));
     const { next, changes } = applyActions(st, [
       // 写在哪天就是哪天做：不早于、也不晚于这一天
-      { type: 'add_task', title, due: date, notBefore: date, estimateMin: 30, energyCost: 'low' },
+      { type: 'add_task', title, due: date, notBefore: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost },
     ]);
     if (!changes[0]?.ok) return;
+    setAddHint(
+      `📝 已加入：${title}（${parsed.estimateMin} 分钟${parsed.energyCost === 'high' ? '，高耗能' : ''}）——下面会显示排在几点`
+    );
     const added = next.goals.flatMap(g => g.milestones.flatMap(m => m.tasks)).find(t => !before.has(t.id));
     if (added) await saveStyle(added.id, { textColor: newItemColor, bold: newItemBold });
     await commitState(next);
@@ -387,7 +444,11 @@ function CalendarMain() {
     const isToday = dateStr === todayStr;
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
     const itemLines = itemsToday.slice(0, 5);
-    const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(0, Math.max(0, 5 - itemLines.length));
+    const fixedLines = fixedFor(dateStr).slice(0, Math.max(0, 5 - itemLines.length));
+    const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(
+      0,
+      Math.max(0, 5 - itemLines.length - fixedLines.length)
+    );
 
     const currentMonthPrefix = currentMonth.slice(0, 7);
     const dateMonthPrefix = dateStr.slice(0, 7);
@@ -418,6 +479,7 @@ function CalendarMain() {
         // 重置新事项的颜色/加粗为默认（或上次记忆）
         setNewItemColor('#333');
         setNewItemBold(false);
+        setAddHint('');
         setModalVisible(true);
       }
     };
@@ -457,6 +519,16 @@ function CalendarMain() {
               ]}
             >
               {item.title}
+            </Text>
+          ))}
+          {fixedLines.map(f => (
+            <Text
+              key={`fixed-${f.id}`}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={[styles.itemText, styles.fixedItemText, { opacity: isCurrentMonth ? 1 : 0.5 }]}
+            >
+              {minutesToHM(f.startMin)} {f.title}
             </Text>
           ))}
           {autoLines.map(a => (
@@ -586,13 +658,33 @@ function CalendarMain() {
                   </View>
                 </View>
 
+                {currentEditDate === todayStr &&
+                  (() => {
+                    const cur = nowMinute();
+                    const nextBlock = scheduled
+                      .filter(i => i.date === todayStr && i.endMin > cur)
+                      .sort((a, b) => a.startMin - b.startMin)[0];
+                    if (!nextBlock || !nextBlock.taskId) return null;
+                    return (
+                      <TouchableOpacity
+                        style={styles.startNextBtn}
+                        onPress={() => startTimerFor(nextBlock.taskId as string, nextBlock.endMin - nextBlock.startMin)}
+                      >
+                        <Text style={styles.startNextText}>
+                          ▶ 开始下一项：{nextBlock.title}
+                          <Text style={styles.startNextMeta}>（{minutesToHM(nextBlock.startMin)}–{minutesToHM(nextBlock.endMin)}）</Text>
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
                 <Text style={styles.sectionTitle}>📝 我的事项</Text>
                 <ScrollView style={styles.noteList}>
                   {itemsForSelectedDay.length === 0 ? (
                     <Text style={{ color: '#bbb', textAlign: 'center', marginTop: 20 }}>暂无事项</Text>
                   ) : (
                     itemsForSelectedDay.map((item, idx) => (
-                      <View key={item.id} style={styles.noteItemRow}>
+                      <View key={item.id}>
+                      <View style={styles.noteItemRow}>
                         <TouchableOpacity onPress={() => toggleItemCompleted(item)} style={[styles.checkbox, item.completed && { backgroundColor: '#1976D2', borderColor: '#1976D2' }]}>
                           {item.completed && <Text style={{ color: '#fff', fontSize: 13 }}>✓</Text>}
                         </TouchableOpacity>
@@ -629,7 +721,16 @@ function CalendarMain() {
                             <Text style={[styles.noteItemText, { color: item.textColor || '#222', fontWeight: item.bold ? 'bold' : '400' }, item.completed && { textDecorationLine: 'line-through', color: '#b0b0b0' }]}>
                               {item.title}
                             </Text>
-                            <Text style={styles.noteItemDate}>[{item.date}]</Text>
+                            <Text style={styles.noteItemDate}>
+                              [{item.date}]
+                              {!item.completed &&
+                                (() => {
+                                  const b = firstBlock(item.id);
+                                  if (b) return <Text style={styles.slotText}>{`  🕐 ${b.date === item.date ? '' : b.date.slice(5) + ' '}${minutesToHM(b.startMin)}–${minutesToHM(b.endMin)}`}</Text>;
+                                  if (unscheduledIds.has(item.id)) return <Text style={styles.slotWarn}>  ⚠️ 这天排不下</Text>;
+                                  return null;
+                                })()}
+                            </Text>
                           </TouchableOpacity>
                         )}
                         {/* 调整顺序：上移 / 下移（仅在同一天内） */}
@@ -676,7 +777,43 @@ function CalendarMain() {
                           <Text style={{ color: '#E53935', fontSize: 17, fontWeight: 'bold' }}>✕</Text>
                         </TouchableOpacity>
                       </View>
+                      {/* 晚上复盘 / 过期没做完：一键顺延 */}
+                      {!item.completed &&
+                        (item.date < todayStr || (item.date === todayStr && nowMinute() >= reviewAt)) && (
+                          <View style={styles.reviewRow}>
+                            <Text style={styles.reviewLabel}>{item.date < todayStr ? '过期没做完：' : '今天没做完？'}</Text>
+                            {item.date < todayStr && (
+                              <TouchableOpacity style={styles.reviewChip} onPress={() => moveItemTo(item.id, todayStr)}>
+                                <Text style={styles.reviewChipText}>挪到今天</Text>
+                              </TouchableOpacity>
+                            )}
+                            <TouchableOpacity style={styles.reviewChip} onPress={() => moveItemTo(item.id, addDays(todayStr, 1))}>
+                              <Text style={styles.reviewChipText}>明天继续</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.reviewChip} onPress={() => moveItemTo(item.id, addDays(todayStr, 3))}>
+                              <Text style={styles.reviewChipText}>放一放（3 天后）</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
                     ))
+                  )}
+                  {/* 这天的固定日程 */}
+                  {fixedFor(currentEditDate).length > 0 && (
+                    <View style={styles.autoSection}>
+                      <Text style={styles.autoTitle}>📌 固定日程（排程会避开）</Text>
+                      {fixedFor(currentEditDate).map(f => (
+                        <View key={f.id} style={styles.autoRow}>
+                          <Text style={styles.fixedRowText} numberOfLines={1}>
+                            {minutesToHM(f.startMin)}–{minutesToHM(f.endMin)}　{f.title}
+                            {f.weekday !== undefined ? <Text style={styles.autoMeta}>　每周</Text> : null}
+                          </Text>
+                          <TouchableOpacity onPress={() => deleteFixed(f)} style={{ padding: 4, marginLeft: 4 }}>
+                            <Text style={{ color: '#E53935', fontSize: 15 }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
                   )}
                   {/* 自动排进这天的任务 */}
                   {(() => {
@@ -705,7 +842,7 @@ function CalendarMain() {
                 <View style={styles.addContainer}>
                   <View style={styles.addRow}>
                     <TextInput
-                      placeholder="添加新事项"
+                      placeholder="添加新事项：写报告 2小时 / !复习 90分钟 / 15:00-17:00 开组会"
                       value={addText}
                       style={[styles.addInput, { flex: 1 }]}
                       onChangeText={setAddText}
@@ -715,6 +852,7 @@ function CalendarMain() {
                       <Text style={{ color: '#fff', fontSize: 15 }}>添加</Text>
                     </TouchableOpacity>
                   </View>
+                  {addHint ? <Text style={styles.addHint}>{addHint}</Text> : null}
                   {/* 跟 AI 说这天的安排（会跳到「今天」页处理，方案确认后生效） */}
                   <View style={[styles.addRow, { marginTop: 8 }]}>
                     <TextInput
@@ -914,6 +1052,18 @@ const styles = StyleSheet.create({
   addContainer: { marginTop: 10 },
   addRow: { flexDirection: 'row', alignItems: 'center' },
   autoItemText: { color: '#9E9E9E', fontStyle: 'italic', fontWeight: '400' },
+  fixedItemText: { color: '#546E7A', fontWeight: '400' },
+  fixedRowText: { flex: 1, fontSize: 14, color: '#455A64' },
+  slotText: { color: '#1976D2', fontSize: 12 },
+  slotWarn: { color: '#D84315', fontSize: 12 },
+  reviewRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingLeft: 32, paddingBottom: 6 },
+  reviewLabel: { fontSize: 12, color: '#7E57C2', marginRight: 6 },
+  reviewChip: { borderWidth: 1, borderColor: '#B39DDB', borderRadius: 12, paddingVertical: 2, paddingHorizontal: 8, marginRight: 6, marginTop: 2 },
+  reviewChipText: { fontSize: 12, color: '#5E35B1' },
+  startNextBtn: { backgroundColor: '#2E7D32', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 10 },
+  startNextText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  startNextMeta: { color: '#C8E6C9', fontSize: 13, fontWeight: '400' },
+  addHint: { fontSize: 12, color: '#2E7D32', marginTop: 6 },
   playText: { color: '#1976D2', fontSize: 15 },
   autoSection: { marginTop: 10, paddingTop: 8, borderTopWidth: 0.6, borderColor: '#e6e6ed' },
   autoTitle: { fontSize: 13, color: '#888', marginBottom: 4 },
