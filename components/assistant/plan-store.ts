@@ -169,7 +169,7 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
     ...DEFAULT_SCHEDULE_OPTIONS,
     startDate: todayStr(),
     notBeforeMin: nowMinuteRounded(now),
-    speedFactor: speedFactor(state.timeLogs),
+    speedFactor: speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task)),
   });
 }
 
@@ -328,7 +328,11 @@ export function applyActions(
           const mirror = isMirrorGoal(ref.goal) ? resolveMirror(next, t.id) : null;
           if (a.title && String(a.title).trim()) t.title = String(a.title).trim();
           const est = validMin(a.estimateMin);
-          if (est) t.estimateMin = est;
+          if (est && est !== t.estimateMin) {
+            // 第一次追加时间时记下原始预估，速率系数要用它
+            if (t.originalEstimateMin === undefined) t.originalEstimateMin = t.estimateMin;
+            t.estimateMin = est;
+          }
           if (a.energyCost && COSTS.includes(a.energyCost)) t.energyCost = a.energyCost;
           if (a.due !== undefined) t.due = a.due === null ? undefined : safeDate(a.due) ?? t.due;
           if (a.notBefore !== undefined) t.notBefore = a.notBefore === null ? undefined : safeDate(a.notBefore);
@@ -427,29 +431,112 @@ export function applyActions(
   return { next, changes };
 }
 
-/** 保存应用后的状态，并重新排程 */
-export async function commitState(state: PlanState): Promise<ScheduleResult> {
-  const schedule = replan(state);
+/** 只保存数据，不重新排程 */
+export async function saveState(state: PlanState): Promise<void> {
   await setMany([
     [KEYS.goals, JSON.stringify(state.goals)],
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
     [KEYS.tasks, JSON.stringify(state.smartTasks)],
     [KEYS.calendar, JSON.stringify(state.calendar)],
-    [KEYS.schedule, JSON.stringify(schedule)],
   ]);
+}
+
+/** 保存应用后的状态，并从现在起重新排程 */
+export async function commitState(state: PlanState): Promise<ScheduleResult> {
+  const schedule = replan(state);
+  await saveState(state);
+  await setMany([[KEYS.schedule, JSON.stringify(schedule)]]);
   return schedule;
+}
+
+// ---------------------------------------------------------------------------
+// 超时跟进
+// ---------------------------------------------------------------------------
+export type OverrunInfo = { task: PlanTask; goal: Goal; spent: number; over: number };
+
+/** 已投入时间达到或超过预估、但还没完成的任务 */
+export function overrunTasks(state: PlanState): OverrunInfo[] {
+  const spent = spentByTask(state.timeLogs);
+  return allTasks(state.goals)
+    .filter(r => !r.task.done)
+    .map(r => ({ task: r.task, goal: r.goal, spent: spent.get(r.task.id) ?? 0 }))
+    .filter(x => x.spent > 0 && x.spent >= x.task.estimateMin)
+    .map(x => ({ ...x, over: x.spent - x.task.estimateMin }));
+}
+
+export type OverrunChoice = { addMin: number; tomorrow?: boolean } | { done: true };
+
+export const OVERRUN_OPTIONS: { label: string; choice: OverrunChoice }[] = [
+  { label: '还要 15 分钟', choice: { addMin: 15 } },
+  { label: '30 分钟', choice: { addMin: 30 } },
+  { label: '1 小时', choice: { addMin: 60 } },
+  { label: '2 小时', choice: { addMin: 120 } },
+  { label: '明天继续（约 1 小时）', choice: { addMin: 60, tomorrow: true } },
+  { label: '✅ 已完成', choice: { done: true } },
+];
+
+/**
+ * 回答「还要多久」：把预估改成「已投入 + 还要的时间」（或标记完成），
+ * 保存并从现在起重新排程。extraSpentMin 是正在计时、还没保存的分钟数。
+ */
+export async function resolveOverrun(
+  taskId: string,
+  choice: OverrunChoice,
+  extraSpentMin = 0
+): Promise<{ state: PlanState; schedule: ScheduleResult; summary: string }> {
+  const state = await loadPlanState();
+  let action: AssistantAction;
+  if ('done' in choice) {
+    action = { type: 'complete_task', taskId };
+  } else {
+    const spent = (spentByTask(state.timeLogs).get(taskId) ?? 0) + extraSpentMin;
+    action = {
+      type: 'update_task',
+      taskId,
+      estimateMin: spent + choice.addMin,
+      ...(choice.tomorrow ? { notBefore: addDays(todayStr(), 1) } : {}),
+    };
+  }
+  const { next, changes } = applyActions(state, [action]);
+  if (!changes[0]?.ok) throw new Error(changes[0]?.summary || '操作失败');
+  const schedule = await commitState(next);
+  return { state: next, schedule, summary: changes[0].summary };
+}
+
+/** 设置任务完成 / 未完成；SMART 镜像任务会同步写回 SMART 任务和日历 */
+export async function setTaskDone(taskId: string, done: boolean): Promise<PlanState> {
+  const state = await loadPlanState();
+  const ref = allTasks(state.goals).find(r => r.task.id === taskId);
+  if (!ref) return state;
+  ref.task.done = done;
+  const mirror = isMirrorGoal(ref.goal) ? resolveMirror(state, taskId) : null;
+  if (mirror && mirror.subId !== MAIN_SUB) {
+    const sub = mirror.smart.subtasks.find(x => x.id === mirror.subId);
+    if (sub) {
+      sub.completed = done;
+      state.calendar = state.calendar.map(c =>
+        c.parentTaskId === mirror.smart.id && c.title === sub.title ? { ...c, completed: done } : c
+      );
+    }
+  }
+  await saveState(state);
+  return state;
 }
 
 // ---------------------------------------------------------------------------
 // 给 AI 的上下文
 // ---------------------------------------------------------------------------
+function refsAll(state: PlanState) {
+  return allTasks(state.goals).map(r => r.task);
+}
+
 export function buildContext(state: PlanState, schedule: ScheduleResult | null, now = new Date()): string {
   const today = todayStr();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const spent = spentByTask(state.timeLogs);
   const lines: string[] = [];
   lines.push(`现在：${today} ${WEEKDAY_CN[weekdayOf(today)]} ${minutesToHM(nowMin)}`);
-  const sf = speedFactor(state.timeLogs);
+  const sf = speedFactor(state.timeLogs, refsAll(state));
   lines.push(`速率系数：${sf}（实际耗时 ≈ 预估 × ${sf}，来自历史时间记录）`);
   const gold = goldenSlots(predictCurve(state.energyLogs, today)).map(slotLabel);
   if (gold.length) lines.push(`精力最好的时段：${gold.join('、')}`);
@@ -469,6 +556,12 @@ export function buildContext(state: PlanState, schedule: ScheduleResult | null, 
       );
     });
   if (pending.length === 0) lines.push('（没有）');
+
+  const over = overrunTasks(state);
+  if (over.length) {
+    lines.push('', '## 已超出预估、还没完成的任务');
+    over.forEach(o => lines.push(`${o.task.id} | ${o.task.title} | 预估 ${o.task.estimateMin} | 已投入 ${o.spent}`));
+  }
 
   const goalsProgress = state.goals
     .map(g => {

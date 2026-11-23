@@ -32,9 +32,17 @@ import {
   randomId,
   saveJSON,
   speedFactor,
+  speedSamples,
   suggestFragment,
   todayStr,
 } from '@/app/utils/planning';
+import {
+  OVERRUN_OPTIONS,
+  OverrunChoice,
+  resolveOverrun,
+  loadPlanState,
+  setTaskDone,
+} from '@/components/assistant/plan-store';
 
 const CATEGORY_COLOR: Record<TimeLog['category'], string> = {
   任务: '#1976D2',
@@ -81,7 +89,8 @@ export default function TimeLogPanel() {
   useEffect(() => {
     (async () => {
       setLogs(await loadJSON<TimeLog[]>(KEYS.timeLogs, []));
-      setGoals(await loadJSON<Goal[]>(KEYS.goals, []));
+      // 同步 SMART 任务后再读，和 AI 秘书看到的是同一份任务
+      setGoals((await loadPlanState()).goals);
       setEnergyLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
       const savedChores = await loadJSON<{ title: string; minutes: number }[]>(KEYS.choreTemplates, []);
       setChores(savedChores.length > 0 ? savedChores : DEFAULT_CHORES);
@@ -115,7 +124,15 @@ export default function TimeLogPanel() {
     await saveJSON(KEYS.fragmentLogs, next.filter(l => l.category === '碎片时间'));
   };
 
-  const factor = useMemo(() => speedFactor(logs), [logs]);
+  const allPlanTasks = useMemo(() => goals.flatMap(g => g.milestones.flatMap(m => m.tasks)), [goals]);
+  const factor = useMemo(() => speedFactor(logs, allPlanTasks), [logs, allPlanTasks]);
+  const sampleCount = useMemo(() => speedSamples(logs, allPlanTasks).length, [logs, allPlanTasks]);
+
+  // 这个任务之前已经计过的分钟数（不含正在计的这一段）
+  const spentBefore = useMemo(
+    () => (runTaskId ? logs.filter(l => l.taskId === runTaskId).reduce((s, l) => s + l.minutes, 0) : 0),
+    [logs, runTaskId]
+  );
 
   const today = todayStr();
   const todayLogs = useMemo(
@@ -193,16 +210,39 @@ export default function TimeLogPanel() {
     );
   };
 
+  // 通过统一的数据层标记完成：SMART 同步来的任务会一并写回 SMART 页面和日历
   const markTaskDone = async (taskId: string) => {
-    const next = goals.map(g => ({
-      ...g,
-      milestones: g.milestones.map(m => ({
-        ...m,
-        tasks: m.tasks.map(t => (t.id === taskId ? { ...t, done: true } : t)),
-      })),
-    }));
-    setGoals(next);
-    await saveJSON(KEYS.goals, next);
+    const state = await setTaskDone(taskId, true);
+    setGoals(state.goals);
+  };
+
+  // ---------- 超时跟进 ----------
+  const [overBusy, setOverBusy] = useState(false);
+  const answerOverrun = async (choice: OverrunChoice) => {
+    const taskId = runTaskId;
+    if (!taskId) return;
+    setOverBusy(true);
+    try {
+      if ('done' in choice) {
+        await stopTimer(true);
+        await markTaskDone(taskId);
+        setMessage('已记录并标记完成，排程会把省下的时间让给别的任务。');
+      } else if (choice.tomorrow) {
+        await stopTimer(true);
+        const r = await resolveOverrun(taskId, choice);
+        setGoals(r.state.goals);
+        setMessage(`今天先到这里。${r.summary}，剩下的明天继续，已重新排程。`);
+      } else {
+        // 继续计时：把正在计的分钟也算进已投入
+        const r = await resolveOverrun(taskId, choice, Math.floor(elapsed / 60));
+        setGoals(r.state.goals);
+        setMessage(`${r.summary}，继续加油，排程已顺延。`);
+      }
+    } catch (e: any) {
+      setMessage('操作失败：' + (e?.message || e));
+    } finally {
+      setOverBusy(false);
+    }
   };
 
   // ---------- 生活琐事 ----------
@@ -259,6 +299,9 @@ export default function TimeLogPanel() {
 
   const elapsedText = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   const timerRunning = startedAt !== null;
+  const runningTask = runTaskId ? taskById.get(runTaskId) : undefined;
+  const runningTotal = spentBefore + Math.floor(elapsed / 60);
+  const isOverrun = timerRunning && !!runningTask && runningTotal >= runningTask.estimateMin;
   const calibrateDemo = calibrateEstimate(60, factor);
 
   return (
@@ -330,6 +373,27 @@ export default function TimeLogPanel() {
           )}
         </View>
 
+        {isOverrun && runningTask ? (
+          <View style={styles.overBox}>
+            <Text style={styles.overTitle}>
+              ⏰ 已超出预估：预估 {runningTask.estimateMin} 分钟，已做 {runningTotal} 分钟。还要多久？
+            </Text>
+            <View style={styles.chipWrap}>
+              {OVERRUN_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={[styles.overBtn, overBusy && { opacity: 0.5 }]}
+                  disabled={overBusy}
+                  onPress={() => answerOverrun(opt.choice)}
+                >
+                  <Text style={styles.overBtnText}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.subText}>选「还要…」会继续计时并顺延排程；「明天继续」会先保存这段记录。</Text>
+          </View>
+        ) : null}
+
         {timerRunning && runTaskId ? (
           <TouchableOpacity style={styles.linkBtn} onPress={() => markTaskDone(runTaskId)}>
             <Text style={styles.linkText}>把「{runTitle}」标记为已完成</Text>
@@ -395,7 +459,9 @@ export default function TimeLogPanel() {
           </Text>
         </View>
         <Text style={styles.tip}>例：预估 60min 的任务，按你的速率会排 {calibrateDemo}min。</Text>
-        <Text style={styles.subText}>样本：{logs.filter(l => l.estimateMin).length} 条带预估的记录</Text>
+        <Text style={styles.subText}>
+          样本：{sampleCount} 个（同一任务的多次计时合并计算，任务完成后才计入）
+        </Text>
       </View>
 
       {/* 今日统计 */}
@@ -495,4 +561,8 @@ const styles = StyleSheet.create({
   logRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 0.6, borderColor: '#e6e6ed' },
   logTitle: { fontSize: 13, fontWeight: '700' },
   logDetail: { fontSize: 12, color: '#7b8ba2', marginTop: 2 },
+  overBox: { backgroundColor: '#FFF6F2', borderRadius: 10, borderWidth: 1, borderColor: '#F5C6B5', padding: 12, marginTop: 12 },
+  overTitle: { fontSize: 14, fontWeight: '600', color: '#BF360C', marginBottom: 8 },
+  overBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#F0B29A', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 10, marginRight: 8, marginBottom: 6 },
+  overBtnText: { fontSize: 13, color: '#BF360C' },
 });

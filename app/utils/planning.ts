@@ -329,6 +329,8 @@ export type PlanTask = {
   window?: TaskWindow;
   /** 补充说明（AI 秘书记录的背景） */
   note?: string;
+  /** 第一次追加时间之前的原始预估，用于计算速率系数 */
+  originalEstimateMin?: number;
   createdAt: string;
 };
 
@@ -448,11 +450,39 @@ export function suggestFragment(energyScore: number, nextTaskIsHigh: boolean): s
 // ---------------------------------------------------------------------------
 
 /** 实际/预估 的中位数比值，>1 说明你习惯性低估耗时 */
-export function speedFactor(logs: TimeLog[]): number {
-  const ratios = logs
-    .filter(l => l.estimateMin && l.estimateMin > 0 && l.minutes > 0)
-    .map(l => l.minutes / (l.estimateMin as number))
-    .sort((a, b) => a - b);
+/**
+ * 速率样本：实际耗时 ÷ 原始预估。
+ * - 关联了任务的记录：同一任务的多次计时合并成一个样本，用总耗时比原始预估；
+ *   传入 tasks 时只统计已完成的任务（没做完的总耗时还不完整）。
+ * - 没关联任务、但填了预估的记录：每条单独算。
+ */
+export function speedSamples(logs: TimeLog[], tasks?: PlanTask[]): number[] {
+  const byId = tasks ? new Map(tasks.map(t => [t.id, t])) : null;
+  const groups = new Map<string, TimeLog[]>();
+  const ratios: number[] = [];
+  for (const l of logs) {
+    if (!(l.minutes > 0)) continue;
+    if (l.taskId) {
+      const g = groups.get(l.taskId) ?? [];
+      g.push(l);
+      groups.set(l.taskId, g);
+    } else if (l.estimateMin && l.estimateMin > 0) {
+      ratios.push(l.minutes / l.estimateMin);
+    }
+  }
+  for (const [taskId, g] of groups) {
+    const task = byId?.get(taskId);
+    if (task && !task.done) continue;
+    const earliest = [...g].sort((a, b) => a.startAt.localeCompare(b.startAt)).find(l => l.estimateMin && l.estimateMin > 0);
+    const est = task ? task.originalEstimateMin ?? task.estimateMin : earliest?.estimateMin;
+    if (!est || est <= 0) continue;
+    ratios.push(g.reduce((s, l) => s + l.minutes, 0) / est);
+  }
+  return ratios.sort((a, b) => a - b);
+}
+
+export function speedFactor(logs: TimeLog[], tasks?: PlanTask[]): number {
+  const ratios = speedSamples(logs, tasks);
   if (ratios.length === 0) return 1;
   const mid = Math.floor(ratios.length / 2);
   const med = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
