@@ -334,6 +334,10 @@ export type PlanTask = {
   originalEstimateMin?: number;
   /** 完成时间 */
   doneAt?: string;
+  /** 被拆成了子任务：自己不再排程，完成状态跟随子任务 */
+  split?: boolean;
+  /** 子任务所属的父任务 id */
+  parentId?: string;
   createdAt: string;
 };
 

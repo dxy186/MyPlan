@@ -10,7 +10,7 @@ import { ScheduleResult } from '@/app/utils/scheduler';
 
 import { loadReviews, reasonSummary } from './followup';
 import { buildInsights, categoryFactors, categoryOf, habitsForAi, loadBlockLog } from './habits';
-import { DAILY_GOAL_ID, PlanState, allTasks, commitState, loadPlanState, spentByTask } from './plan-store';
+import { PlanState, allTasks, commitState, descendantIds, loadPlanState, spentByTask } from './plan-store';
 
 export const BREAKDOWN_EVENT = 'myplan:breakdown';
 export const DATA_CHANGED_EVENT = 'myplan:data-changed';
@@ -150,10 +150,8 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
 }
 
 /**
- * 用拆好的步骤替换原任务：
- * - 原任务在「日常安排」里 → 新建一个以它命名的目标，步骤放进去
- * - 原任务在某个目标里 → 步骤插到原来的位置
- * 步骤按顺序互相依赖，每一步固定在它被分到的那天做。
+ * 把原任务拆开：原任务留在任务列表里当「父任务」（不再单独排程，完成状态跟随子任务），
+ * 拆出来的步骤作为子任务紧跟在它下面。步骤按顺序依赖，每一步固定在它被分到的那天做。
  */
 export async function applyBreakdown(taskId: string, steps: BreakdownStep[]): Promise<PlanState> {
   const state = await loadPlanState();
@@ -173,39 +171,30 @@ export async function applyBreakdown(taskId: string, steps: BreakdownStep[]): Pr
       notBefore: s.date,
       deps: prevId ? [prevId] : [],
       done: false,
-      note: [s.note, i === 0 ? `拆自「${original.title}」` : ''].filter(Boolean).join('；') || undefined,
+      note: s.note || undefined,
       createdAt: now,
     };
     prevId = id;
     return t;
   });
 
-  const milestone = ref.goal.milestones[ref.milestoneIdx];
-  const idx = milestone.tasks.findIndex(t => t.id === taskId);
-  if (ref.goal.id === DAILY_GOAL_ID) {
-    milestone.tasks.splice(idx, 1);
-    state.goals.unshift({
-      id: randomId(),
-      title: original.title,
-      specific: original.note || '',
-      measurable: '',
-      achievable: '',
-      relevant: '',
-      due: original.due || steps[steps.length - 1].date,
-      feasibility: 70,
-      difficulty: 2,
-      strategy: 'AI 拆解',
-      milestones: [{ id: randomId(), title: original.title, tasks: newTasks }],
-      createdAt: now,
-      source: 'ai',
-    });
-  } else {
-    // 依赖原任务的其他任务，改为依赖最后一步
-    const lastId = newTasks[newTasks.length - 1].id;
-    for (const r of allTasks(state.goals)) r.task.deps = r.task.deps.map(d => (d === taskId ? lastId : d));
-    newTasks[0].deps = [...original.deps];
-    milestone.tasks.splice(idx, 1, ...newTasks);
+  newTasks.forEach(t => (t.parentId = original.id));
+  newTasks[0].deps = [...original.deps];
+  // 依赖原任务的其他任务，改为依赖最后一步
+  const lastId = newTasks[newTasks.length - 1].id;
+  for (const r of allTasks(state.goals)) {
+    if (r.task.id !== original.id) r.task.deps = r.task.deps.map(d => (d === original.id ? lastId : d));
   }
+  // 原来已经拆过一次：先去掉旧的子任务
+  const old = new Set(descendantIds(state.goals, original.id));
+  const milestone = ref.goal.milestones[ref.milestoneIdx];
+  milestone.tasks = milestone.tasks.filter(t => !old.has(t.id));
+  const idx = milestone.tasks.findIndex(t => t.id === original.id);
+  original.split = true;
+  original.done = false;
+  delete original.doneAt;
+  if (!original.due) original.due = steps[steps.length - 1].date;
+  milestone.tasks.splice(idx + 1, 0, ...newTasks);
   await commitState(state);
   notifyDataChanged();
   return state;

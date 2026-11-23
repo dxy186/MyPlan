@@ -156,7 +156,7 @@ export function suggestForGap(
 
   const out: GapSuggestion[] = [];
   for (const { task, goal } of refs) {
-    if (task.done) continue;
+    if (task.done || task.split) continue;
     if (task.deps.some(d => !doneIds.has(d))) continue;
     if (task.notBefore && diffDays(today, task.notBefore) > 0) continue;
 
