@@ -143,6 +143,7 @@ function TaskEditor({
   onDone,
   onClose,
   onStart,
+  onDelete,
 }: {
   task: PlanTask;
   spent: number;
@@ -151,6 +152,7 @@ function TaskEditor({
   onDone: () => void;
   onClose: () => void;
   onStart: () => void;
+  onDelete: () => void;
 }) {
   const [cost, setCost] = useState<EnergyCost>(task.energyCost);
   const [minutes, setMinutes] = useState(String(task.estimateMin));
@@ -186,6 +188,9 @@ function TaskEditor({
         </TouchableOpacity>
         <TouchableOpacity style={styles.smallSecondary} onPress={onClose}>
           <Text style={styles.smallSecondaryText}>收起</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallDanger, busy && styles.btnDisabled]} disabled={busy} onPress={onDelete}>
+          <Text style={styles.smallDangerText}>🗑️ 删除任务</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -500,6 +505,77 @@ export default function AssistantScreen() {
         />
       )}
 
+      {/* 今天 / 明天 */}
+      {shown && (
+        <View style={styles.planCard}>
+          <View style={styles.planHeader}>
+            <Text style={styles.cardTitle}>{preview ? '👀 预览：调整后的安排' : '📅 接下来的安排'}</Text>
+            <TouchableOpacity onPress={reload}>
+              <Text style={styles.link}>刷新</Text>
+            </TouchableOpacity>
+          </View>
+          {!preview && shown.unscheduled.length > 0 && (
+            <Text style={styles.warn}>
+              ⚠️ 截止前排不下：{shown.unscheduled.map(t => t.title).join('、')}（已尽量排在截止后最早的空档，标了 ⚠️）
+            </Text>
+          )}
+          <Text style={styles.mutedSmall}>
+            {shown.risk.message}
+            {!preview ? '  点任务块可以改耗能、时长、时段，开始计时、标记完成或删除。' : ''}
+          </Text>
+          <View style={styles.days}>
+            {[
+              { date: today, title: '今天（从现在起）', fromNow: true },
+              { date: addDays(today, 1), title: '明天', fromNow: false },
+            ].map(d => (
+              <DayTimeline
+                key={d.date}
+                schedule={shown}
+                date={d.date}
+                title={d.title}
+                fromNow={d.fromNow}
+                selectedId={selected}
+                onSelect={preview ? undefined : it => setSelected(it ? it.id : null)}
+                renderEditor={it => {
+                  const t = it.taskId ? taskById.get(it.taskId) : undefined;
+                  if (!t) return null;
+                  return (
+                    <TaskEditor
+                      key={t.id + t.estimateMin + t.energyCost}
+                      task={t}
+                      spent={spentMap.get(t.id) ?? 0}
+                      busy={editBusy}
+                      onClose={() => setSelected(null)}
+                      onStart={async () => {
+                        await startTaskTimer(t, it.endMin - it.startMin);
+                        setSelected(null);
+                        if (Platform.OS === 'web') window.scrollTo?.({ top: 0, behavior: 'smooth' });
+                      }}
+                      onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
+                      onDelete={() => {
+                        const ok =
+                          Platform.OS !== 'web' ||
+                          typeof window === 'undefined' ||
+                          window.confirm(`删除任务「${t.title}」？删除后不能恢复（日历和任务列表里也会一起删掉）。`);
+                        if (ok) runQuickAction({ type: 'delete_task', taskId: t.id });
+                      }}
+                      onSave={p =>
+                        runQuickAction({
+                          type: 'update_task',
+                          taskId: t.id,
+                          energyCost: p.energyCost,
+                          estimateMin: p.estimateMin,
+                          window: p.window,
+                        })
+                      }
+                    />
+                  );
+                }}
+              />
+            ))}
+          </View>
+        </View>
+      )}
       {/* 输入 */}
       <View style={styles.inputCard}>
         <TextInput
@@ -654,70 +730,6 @@ export default function AssistantScreen() {
         </View>
       )}
 
-      {/* 今天 / 明天 */}
-      {shown && (
-        <View style={styles.planCard}>
-          <View style={styles.planHeader}>
-            <Text style={styles.cardTitle}>{preview ? '👀 预览：调整后的安排' : '📅 接下来的安排'}</Text>
-            <TouchableOpacity onPress={reload}>
-              <Text style={styles.link}>刷新</Text>
-            </TouchableOpacity>
-          </View>
-          {!preview && shown.unscheduled.length > 0 && (
-            <Text style={styles.warn}>
-              ⚠️ 截止前排不下：{shown.unscheduled.map(t => t.title).join('、')}（已尽量排在截止后最早的空档，标了 ⚠️）
-            </Text>
-          )}
-          <Text style={styles.mutedSmall}>
-            {shown.risk.message}
-            {!preview ? '  点任务块可以直接改耗能、时长、时段，或标记完成。' : ''}
-          </Text>
-          <View style={styles.days}>
-            {[
-              { date: today, title: '今天（从现在起）', fromNow: true },
-              { date: addDays(today, 1), title: '明天', fromNow: false },
-            ].map(d => (
-              <DayTimeline
-                key={d.date}
-                schedule={shown}
-                date={d.date}
-                title={d.title}
-                fromNow={d.fromNow}
-                selectedId={selected}
-                onSelect={preview ? undefined : it => setSelected(it ? it.id : null)}
-                renderEditor={it => {
-                  const t = it.taskId ? taskById.get(it.taskId) : undefined;
-                  if (!t) return null;
-                  return (
-                    <TaskEditor
-                      key={t.id + t.estimateMin + t.energyCost}
-                      task={t}
-                      spent={spentMap.get(t.id) ?? 0}
-                      busy={editBusy}
-                      onClose={() => setSelected(null)}
-                      onStart={async () => {
-                        await startTaskTimer(t, it.endMin - it.startMin);
-                        setSelected(null);
-                        if (Platform.OS === 'web') window.scrollTo?.({ top: 0, behavior: 'smooth' });
-                      }}
-                      onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
-                      onSave={p =>
-                        runQuickAction({
-                          type: 'update_task',
-                          taskId: t.id,
-                          energyCost: p.energyCost,
-                          estimateMin: p.estimateMin,
-                          window: p.window,
-                        })
-                      }
-                    />
-                  );
-                }}
-              />
-            ))}
-          </View>
-        </View>
-      )}
       {state && (
         <HabitsCard
           state={state}
@@ -824,8 +836,10 @@ const styles = StyleSheet.create({
   smallPrimary: { backgroundColor: '#1976D2', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8, marginTop: 6 },
   smallPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   smallSecondary: { backgroundColor: '#EEF1F5', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8, marginTop: 6 },
+  smallDanger: { backgroundColor: '#FFEBEE', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8, marginTop: 6 },
+  smallDangerText: { color: '#C62828', fontSize: 13, fontWeight: '600' },
   smallSecondaryText: { color: '#455A64', fontSize: 13, fontWeight: '600' },
-  planCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E9F0', padding: 16, maxWidth: 820 },
+  planCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E9F0', padding: 16, marginBottom: 14, maxWidth: 820 },
   planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   link: { color: '#1976D2', fontSize: 14 },
   days: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -6 },
