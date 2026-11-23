@@ -280,6 +280,8 @@ export function dueReminders(
 }
 
 export const SCHEDULE_STALE_EVENT = 'myplan:schedule-stale';
+export const IN_APP_REMINDER_EVENT = 'myplan:in-app-reminder';
+export type InAppReminder = { key: string; title: string; body: string; system: boolean };
 export const SENT_KEY = '@myplan__reminders_sent';
 
 /** 后台检查一次：发该发的提醒；有任务块刚结束时通知页面刷新排程 */
@@ -290,7 +292,11 @@ export async function reminderTick(sent: Set<string>, now = new Date()) {
   const reviewedToday = reviews.some(r => r.date === todayStr());
   if (settings.enabled) {
     for (const r of dueReminders(schedule, settings, sent, reviewedToday, now)) {
-      notify(r.title, r.body, r.key);
+      const system = notify(r.title, r.body, r.key);
+      // 系统通知不可用（比如在 Claude 内置浏览器里）时，用页面内提醒兜底
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(IN_APP_REMINDER_EVENT, { detail: { ...r, system } }));
+      }
       sent.add(r.key);
     }
   }

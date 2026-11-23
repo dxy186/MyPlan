@@ -8,6 +8,7 @@ import { addDays, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 
 import {
+  IN_APP_REMINDER_EVENT,
   DailyPlan,
   DailyReview,
   MissedBlock,
@@ -61,13 +62,25 @@ export function NowNextCard({ schedule }: { schedule: ScheduleResult | null }) {
   const toggleReminders = async () => {
     if (!settings) return;
     if (!settings.enabled) {
-      const ok = await requestNotificationPermission();
+      // 能用系统通知就用；不能用（被禁止或不支持）也照样开启，改用页面内提醒
+      await requestNotificationPermission();
       setPermission(notificationSupported() ? Notification.permission : 'unsupported');
-      if (!ok) return;
       const s = { ...settings, enabled: true };
       await saveReminderSettings(s);
       setSettings(s);
-      notify('🔔 MyPlan 提醒已开启', '任务开始时、固定日程前 10 分钟和晚上复盘时会提醒你。');
+      const system = notify('🔔 MyPlan 提醒已开启', '任务开始时、固定日程前 10 分钟和晚上复盘时会提醒你。');
+      window.dispatchEvent(
+        new CustomEvent(IN_APP_REMINDER_EVENT, {
+          detail: {
+            key: 'test',
+            title: '🔔 提醒已开启',
+            body: system
+              ? '到点会弹系统通知，同时页面里也会出现这样的提示。'
+              : '这里不能弹系统通知，到点时会在页面右上角提示并响一声，标签页标题也会闪烁。保持 MyPlan 打开即可。',
+            system,
+          },
+        })
+      );
     } else {
       const s = { ...settings, enabled: false };
       await saveReminderSettings(s);
@@ -93,18 +106,12 @@ export function NowNextCard({ schedule }: { schedule: ScheduleResult | null }) {
         )}
       </View>
       {Platform.OS === 'web' && settings && (
-        <TouchableOpacity
-          style={[styles.bellBtn, settings.enabled && styles.bellOn]}
-          onPress={toggleReminders}
-          disabled={permission === 'unsupported'}
-        >
+        <TouchableOpacity style={[styles.bellBtn, settings.enabled && styles.bellOn]} onPress={toggleReminders}>
           <Text style={[styles.bellText, settings.enabled && styles.bellTextOn]}>
-            {permission === 'unsupported'
-              ? '此环境不支持提醒'
-              : permission === 'denied'
-              ? '🔕 通知被浏览器禁止'
-              : settings.enabled
-              ? '🔔 到点提醒：开'
+            {settings.enabled
+              ? permission === 'granted'
+                ? '🔔 到点提醒：开'
+                : '🔔 页面内提醒：开'
               : '🔔 开启到点提醒'}
           </Text>
         </TouchableOpacity>
