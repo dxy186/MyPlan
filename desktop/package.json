@@ -1,0 +1,36 @@
+{
+  "name": "myplan-calendar",
+  "version": "1.0.0",
+  "description": "MyPlan 日历",
+  "main": "main.js",
+  "author": "MyPlan",
+  "private": true,
+  "scripts": {
+    "export-web": "cd .. && npx expo export -p web",
+    "copy-dist": "node scripts/copy-dist.js",
+    "start": "npm run copy-dist && electron .",
+    "dist": "npm run export-web && npm run copy-dist && electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.myplan.calendar",
+    "productName": "MyPlan",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "dist/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "../assets/images/icon.png"
+    },
+    "portable": {
+      "artifactName": "MyPlan-Portable-${version}.exe"
+    }
+  }
+}

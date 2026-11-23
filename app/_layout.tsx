@@ -7,6 +7,7 @@ import CalendarScreen from './calendar';
 import GoalsScreen from './goals';
 import HistoryScreen from './history';
 import WoopScreen from './woop';
+import BackupScreen from '../components/backup/BackupScreen';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
@@ -16,6 +17,7 @@ const NAVS = [
   { name: 'WOOP向导', key: 'woop', icon: '🧭' },
   { name: '勋章墙', key: 'achievements', icon: '🏆' },
   { name: '历史任务', key: 'history', icon: '📜' },
+  { name: '数据备份', key: 'backup', icon: '💾' },
 ];
 
 export default function RootLayout() {
@@ -34,6 +36,7 @@ export default function RootLayout() {
       case 'woop': return <WoopScreen />;
       case 'achievements': return <AchievementsScreen />;
       case 'history': return <HistoryScreen />;
+      case 'backup': return <BackupScreen />;
       default: return <CalendarScreen />;
     }
   };
