@@ -7,6 +7,8 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { getMany, removeMany, setMany } from '@/components/storage-batch';
+
 export const DATA_PREFIX = '@myplan_';
 /** 内部用的键（双下划线），不参与导出 / 导入 */
 const INTERNAL_PREFIX = '@myplan__';
@@ -55,7 +57,7 @@ function isDataKey(k: string) {
 /** 读出当前所有业务数据 */
 export async function readAllData(): Promise<Record<string, string>> {
   const keys = (await AsyncStorage.getAllKeys()).filter(isDataKey);
-  const pairs = await AsyncStorage.multiGet(keys);
+  const pairs = await getMany(keys);
   const out: Record<string, string> = {};
   for (const [k, v] of pairs) if (v != null) out[k] = v;
   return out;
@@ -128,8 +130,8 @@ export async function applyBackup(backup: BackupFile): Promise<void> {
 
   const keepAi = !(AI_CONFIG_KEY in backup.data);
   const toRemove = Object.keys(current).filter((k) => !(keepAi && k === AI_CONFIG_KEY));
-  await AsyncStorage.multiRemove(toRemove);
-  await AsyncStorage.multiSet(Object.entries(backup.data));
+  await removeMany(toRemove);
+  await setMany(Object.entries(backup.data));
 }
 
 export async function readUndoSnapshot(): Promise<UndoSnapshot | null> {
@@ -146,8 +148,8 @@ export async function undoLastImport(): Promise<boolean> {
   const snap = await readUndoSnapshot();
   if (!snap) return false;
   const current = await readAllData();
-  await AsyncStorage.multiRemove(Object.keys(current));
-  await AsyncStorage.multiSet(Object.entries(snap.data));
+  await removeMany(Object.keys(current));
+  await setMany(Object.entries(snap.data));
   await AsyncStorage.removeItem(UNDO_SNAPSHOT_KEY);
   return true;
 }

@@ -5,7 +5,7 @@
  * 2. 把 AI 返回的操作（新增/修改/完成任务、固定日程）应用到数据上，先预览、确认后再保存。
  * 3. 从「现在」开始重新排程。
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setMany } from '@/components/storage-batch';
 
 import {
   EnergyCost,
@@ -430,7 +430,7 @@ export function applyActions(
 /** 保存应用后的状态，并重新排程 */
 export async function commitState(state: PlanState): Promise<ScheduleResult> {
   const schedule = replan(state);
-  await AsyncStorage.multiSet([
+  await setMany([
     [KEYS.goals, JSON.stringify(state.goals)],
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
     [KEYS.tasks, JSON.stringify(state.smartTasks)],
