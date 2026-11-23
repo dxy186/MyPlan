@@ -129,6 +129,7 @@ export function migrateGoals(goals: Goal[], smart: SmartTask[], completedSmart: 
         estimateMin: 30,
         energyCost: 'low',
         due,
+        notBefore: due,
         deps: [],
         done: !!c.completed,
         doneAt: c.completed ? (due ? `${due}T12:00:00` : new Date().toISOString()) : undefined,
