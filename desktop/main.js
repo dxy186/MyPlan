@@ -208,6 +208,9 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
+  // Windows 系统通知需要 AppUserModelId，否则到点提醒弹不出来
+  if (process.platform === 'win32') app.setAppUserModelId('com.myplan.calendar');
+
   app.whenReady().then(() => {
     createWindow().catch((err) => {
       dialog.showErrorBox('MyPlan 启动失败', String((err && err.message) || err));

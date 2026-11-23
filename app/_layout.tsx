@@ -9,6 +9,7 @@ import HistoryScreen from './history';
 import WoopScreen from './woop';
 import BackupScreen from '../components/backup/BackupScreen';
 import AssistantScreen, { FOCUS_ASSISTANT_EVENT } from '../components/assistant/AssistantScreen';
+import ReminderService from '../components/assistant/ReminderService';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
@@ -60,6 +61,7 @@ export default function RootLayout() {
 
   return (
     <View style={styles.container}>
+      <ReminderService />
       <View style={styles.sidebar}>
         <Text style={styles.logo}>MyPlan</Text>
         {NAVS.map((item) => (

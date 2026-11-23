@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 
 import { callChatJSON, getAiConfig } from '@/app/utils/ai';
-import { EnergyCost, PlanTask, TaskWindow, addDays, minutesToHM, todayStr } from '@/app/utils/planning';
+import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
 import {
@@ -33,6 +33,17 @@ import {
   spentByTask,
 } from './plan-store';
 import GapPanel from './GapPanel';
+import { EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
+import {
+  MissedBlock,
+  SCHEDULE_STALE_EVENT,
+  filterUnseenMissed,
+  findMissed,
+  loadReviews,
+  markMissedSeen,
+  matchMoved,
+  reasonSummary,
+} from './followup';
 
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
@@ -251,12 +262,29 @@ export default function AssistantScreen() {
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
+  const [missed, setMissed] = useState<MissedBlock[]>([]);
+
   const reload = useCallback(async () => {
+    const old = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
     const s = await loadPlanState();
     setState(s);
     const sch = await commitState(s); // 打开页面时从现在开始刷新一次排程
     setSchedule(sch);
+    // 自动补排：错过的任务块已经被重新排进后面的空档，告诉用户挪到了哪里
+    const unseen = await filterUnseenMissed(findMissed(old, s));
+    if (unseen.length) {
+      setMissed(prev => [...prev, ...matchMoved(unseen, sch)]);
+      await markMissedSeen(unseen.map(m => m.id));
+    }
   }, []);
+
+  // 有任务块刚结束（后台提醒服务发出的信号）：检查一下要不要补排
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onStale = () => reload();
+    window.addEventListener(SCHEDULE_STALE_EVENT, onStale);
+    return () => window.removeEventListener(SCHEDULE_STALE_EVENT, onStale);
+  }, [reload]);
 
   useEffect(() => {
     reload();
@@ -309,7 +337,7 @@ export default function AssistantScreen() {
       if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到侧边栏「AI 助手」右上角「⚙️ 设置」里填入 DeepSeek API Key。');
       const fresh = await loadPlanState();
       setState(fresh);
-      const context = buildContext(fresh, schedule);
+      const context = buildContext(fresh, schedule, new Date(), reasonSummary(await loadReviews()));
       const pendingNote = proposal ? '\n\n（注意：上一个方案用户还没确认，以下面的新要求为准重新给出完整方案。）' : '';
       const result = await callChatJSON<{ reply?: string; actions?: AssistantAction[] }>([
         { role: 'system', content: SYSTEM_PROMPT },
@@ -424,6 +452,29 @@ export default function AssistantScreen() {
       <Text style={styles.subtitle}>
         说出你要做什么、做完了什么、想怎么调整，我会结合你现有任务的进度重新安排。随时按 Ctrl+K 回到这里。
       </Text>
+
+      <NowNextCard schedule={schedule} />
+      <MissedCard missed={missed} onClose={() => setMissed([])} />
+      {state && !proposal && (
+        <EveningCard
+          state={state}
+          schedule={schedule}
+          onChanged={(s, sch) => {
+            setState(s);
+            setSchedule(sch);
+          }}
+          onNote={text => saveHistory([...history, { role: 'assistant', content: text, at: new Date().toISOString() }])}
+        />
+      )}
+      {!proposal && (
+        <MorningCard
+          schedule={schedule}
+          onAdjust={() => {
+            setInput('今天我想调整一下：');
+            inputRef.current?.focus();
+          }}
+        />
+      )}
 
       {/* 输入 */}
       <View style={styles.inputCard}>

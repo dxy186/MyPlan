@@ -35,6 +35,9 @@ export const KEY_LABELS: Record<string, string> = {
   '@myplan_fragment_logs': '碎片时间记录',
   '@myplan_diary': '日记',
   '@myplan_assistant_history': 'AI 秘书对话',
+  '@myplan_daily_plans': '每日计划',
+  '@myplan_reviews': '每日复盘',
+  '@myplan_reminder_settings': '提醒设置',
   '@myplan_ai_config': 'AI 设置（含 API Key）',
 };
 
