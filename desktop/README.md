@@ -27,6 +27,13 @@ npm run dist
 
 只想本地调试、不打包：`npm run export-web && npm start`。
 
+## 后台常驻与通知（1.1.0 起）
+
+- **开机自启**：第一次运行后默认开启，开机时只在托盘里待命（不弹窗口）。托盘右键 →「开机自动启动」可关闭。
+- **关窗不退出**：点 × 会藏到托盘，到点照样提醒；托盘右键 →「退出（不再提醒）」才真正退出。
+- **系统通知**：程序会在「开始」菜单创建带 AppUserModelID 的 MyPlan 快捷方式——Windows 只有这样才会显示通知。若仍不弹，检查 Windows「设置 → 系统 → 通知」里 MyPlan 是否被关闭、是否开了专注助手/勿扰。
+- **两种包**：`npm run dist` 同时产出 `MyPlan-Portable-x.y.z.exe`（便携版）和 `MyPlan-Setup-x.y.z.exe`（安装版）。推荐安装版；便携版若移动了 exe 位置，再运行一次即可更新自启和快捷方式路径。两者数据互通。
+
 ## 注意
 
 - 升级版本：改 `desktop/package.json` 里的 `version`。

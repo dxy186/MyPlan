@@ -28,11 +28,14 @@ import {
   loadPlanState,
   allTasks,
   overrunTasks,
+  celebrate,
   replan,
   resolveOverrun,
   spentByTask,
 } from './plan-store';
 import GapPanel from './GapPanel';
+import StreakBadge from './StreakBadge';
+import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
 import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
@@ -482,6 +485,9 @@ export default function AssistantScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>🏠 今天</Text>
+      <View style={{ marginBottom: 6 }}>
+        <StreakBadge />
+      </View>
       <Text style={styles.subtitle}>
         跟 AI 说你要做什么、做完了什么、想怎么调整，或者问它问题；它会结合你所有任务的进度重新安排。随时按 Ctrl+K 回到这里。
       </Text>
@@ -494,6 +500,7 @@ export default function AssistantScreen() {
         />
       )}
       <MissedCard missed={missed} onClose={() => setMissed([])} />
+      {state && <WeeklyCard state={state} />}
       {state && !proposal && (
         <EveningCard
           state={state}
@@ -502,7 +509,13 @@ export default function AssistantScreen() {
             setState(s);
             setSchedule(sch);
           }}
-          onNote={text => saveHistory([...history, { role: 'assistant', content: text, at: new Date().toISOString() }])}
+          onNote={text =>
+            setHistory(prev => {
+              const h = [...prev, { role: 'assistant' as const, content: text, at: new Date().toISOString() }].slice(-30);
+              void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(h));
+              return h;
+            })
+          }
         />
       )}
       {!proposal && (
@@ -561,7 +574,10 @@ export default function AssistantScreen() {
                         setSelected(null);
                         if (Platform.OS === 'web') window.scrollTo?.({ top: 0, behavior: 'smooth' });
                       }}
-                      onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
+                      onDone={async () => {
+                        await runQuickAction({ type: 'complete_task', taskId: t.id });
+                        celebrate(t.title);
+                      }}
                       onBreakdown={() => {
                         setSelected(null);
                         openBreakdown(t.id);
@@ -634,7 +650,13 @@ export default function AssistantScreen() {
             setState(s);
             setSchedule(sch);
           }}
-          onNote={text => saveHistory([...history, { role: 'assistant', content: text, at: new Date().toISOString() }])}
+          onNote={text =>
+            setHistory(prev => {
+              const h = [...prev, { role: 'assistant' as const, content: text, at: new Date().toISOString() }].slice(-30);
+              void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(h));
+              return h;
+            })
+          }
         />
       )}
 

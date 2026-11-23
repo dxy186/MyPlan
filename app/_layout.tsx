@@ -9,6 +9,9 @@ import TasksScreen from '../components/screens/TasksScreen';
 import ReminderService from '../components/assistant/ReminderService';
 import { ASK_AI_EVENT } from '../components/assistant/ask-bridge';
 import BreakdownHost from '../components/assistant/BreakdownHost';
+import CelebrationHost from '../components/assistant/CelebrationHost';
+import { OPEN_TARGET_EVENT, OpenTarget } from '../components/assistant/followup';
+import { requestOpenToday } from '../components/assistant/nav-bridge';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
@@ -40,9 +43,19 @@ export default function RootLayout() {
     // 别的页面（日历弹窗）要问 AI：切到「今天」，今天页打开后会取走这句话并发送
     const onAsk = () => setActiveKey('today');
     window.addEventListener(ASK_AI_EVENT, onAsk);
+    // 点开提醒：早上提醒 → 日历里今天的弹窗；复盘 / 周小结 → 今天页
+    const onOpen = (e: Event) => {
+      const target = (e as CustomEvent<{ target: OpenTarget }>).detail?.target;
+      if (target === 'today') {
+        setActiveKey('calendar');
+        setTimeout(requestOpenToday, 50);
+      } else if (target) setActiveKey('today');
+    };
+    window.addEventListener(OPEN_TARGET_EVENT, onOpen);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener(ASK_AI_EVENT, onAsk);
+      window.removeEventListener(OPEN_TARGET_EVENT, onOpen);
     };
   }, []);
 
@@ -62,6 +75,7 @@ export default function RootLayout() {
     <View style={styles.container}>
       <ReminderService />
       <BreakdownHost />
+      <CelebrationHost />
       <View style={styles.sidebar}>
         <Text style={styles.logo}>MyPlan</Text>
         {NAVS.map((item) => (

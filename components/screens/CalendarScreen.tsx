@@ -34,6 +34,8 @@ import { startTaskTimer } from '@/components/assistant/gap';
 import { allTasks } from '@/components/assistant/plan-store';
 
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
+import HabitStrip from './HabitStrip';
+import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assistant/nav-bridge';
 
 // ---------- 数据 ----------
 // 日历里的事项就是统一任务列表里带截止日的任务（见 components/data/calendar-bridge.ts），
@@ -111,6 +113,20 @@ function CalendarMain() {
   }, [todayStr]);
 
   const [currentEditDate, setCurrentEditDate] = useState<string>('');
+  // 点开早上提醒：直接打开今天的弹窗
+  useEffect(() => {
+    const open = () => {
+      if (!takePendingOpenToday()) return;
+      setCurrentMonth(todayStr);
+      setCurrentEditDate(todayStr);
+      setModalVisible(true);
+    };
+    open();
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    window.addEventListener(OPEN_TODAY_MODAL_EVENT, open);
+    return () => window.removeEventListener(OPEN_TODAY_MODAL_EVENT, open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [currentEditItemId, setCurrentEditItemId] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<CalendarItem | null>(null); // 正在编辑的事项
 
@@ -1215,6 +1231,7 @@ const styles = StyleSheet.create({
 export default function CalendarPage() {
   return (
     <View style={{ flex: 1 }}>
+      <HabitStrip />
       <CalendarTopBar />
       <CalendarMain />
     </View>

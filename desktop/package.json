@@ -1,6 +1,6 @@
 {
   "name": "myplan-calendar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MyPlan 日历",
   "main": "main.js",
   "author": "MyPlan",
@@ -9,7 +9,7 @@
     "export-web": "cd .. && npx expo export -p web",
     "copy-dist": "node scripts/copy-dist.js",
     "start": "npm run copy-dist && electron .",
-    "dist": "npm run export-web && npm run copy-dist && electron-builder --win portable"
+    "dist": "npm run export-web && npm run copy-dist && electron-builder --win portable nsis"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -23,14 +23,27 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "dist/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "portable",
+        "nsis"
+      ],
       "icon": "../assets/images/icon.png"
     },
     "portable": {
       "artifactName": "MyPlan-Portable-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MyPlan",
+      "artifactName": "MyPlan-Setup-${version}.exe"
     }
   }
 }

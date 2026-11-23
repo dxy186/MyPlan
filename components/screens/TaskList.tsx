@@ -27,6 +27,7 @@ import {
   applyActions,
   commitState,
   loadPlanState,
+  celebrate,
   markGoalCompletion,
   setChildrenDone,
   spentByTask,
@@ -257,6 +258,7 @@ export default function TaskList() {
       else delete t.doneAt;
       if (t.split) setChildrenDone(s.goals, t.id, t.done);
       markGoalCompletion(g);
+      if (t.done) setTimeout(() => celebrate(t.title), 50);
       return t.done ? `✅ 完成「${t.title}」` : `↩️ 「${t.title}」改回未完成`;
     });
 

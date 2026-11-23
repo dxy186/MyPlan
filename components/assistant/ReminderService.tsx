@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { IN_APP_REMINDER_EVENT, InAppReminder, reminderTick } from './followup';
+import { IN_APP_REMINDER_EVENT, InAppReminder, openTarget, reminderTick } from './followup';
 
 function beep() {
   try {
@@ -79,10 +79,19 @@ export default function ReminderService() {
     <View style={styles.wrap} pointerEvents="box-none">
       {toasts.map(t => (
         <View key={t.key} style={styles.toast}>
-          <View style={{ flex: 1 }}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={t.target ? 0.7 : 1}
+            onPress={() => {
+              if (!t.target) return;
+              openTarget(t.target);
+              setToasts(prev => prev.filter(x => x.key !== t.key));
+            }}
+          >
             <Text style={styles.title}>{t.title}</Text>
             <Text style={styles.body}>{t.body}</Text>
-          </View>
+            {t.target ? <Text style={styles.body}>👉 点这里打开</Text> : null}
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => setToasts(prev => prev.filter(x => x.key !== t.key))}>
             <Text style={styles.close}>知道了</Text>
           </TouchableOpacity>

@@ -32,7 +32,9 @@ import {
   todayTasks,
 } from './followup';
 import { slotOfMinute } from './gap';
-import { AssistantAction, PlanState, applyActions, commitState, loadPlanState } from './plan-store';
+import { AssistantAction, PlanState, applyActions, celebrate, commitState, loadPlanState } from './plan-store';
+import { computeStreak } from '@/components/data/streak';
+import { dailyComment } from './coach';
 
 const TYPE_ICON: Record<string, string> = { task: '📝', fixed: '📌', play: '🎮', chore: '🧹' };
 
@@ -297,6 +299,23 @@ export function EveningCard({
       onChanged(next, sch);
       const done = reviewItems.filter(x => x.status === 'done').length;
       onNote(`🌙 今日复盘：完成 ${done}/${reviewItems.length} 项。没做完的已经顺延，明天见。`);
+      celebrate('今日复盘');
+      // AI 一句话点评（没配 Key 就跳过）
+      const today = todayStr();
+      const focusMin = next.timeLogs
+        .filter(l => l.category === '任务' && l.startAt && new Date(l.startAt).toDateString() === new Date().toDateString())
+        .reduce((s, l) => s + l.minutes, 0);
+      const streak = computeStreak(next.goals, [...(await loadReviews()).map(x => x.date), today]).current;
+      dailyComment({
+        done: reviewItems.filter(x => x.status === 'done').map(x => x.title),
+        notDone: reviewItems.filter(x => x.status !== 'done').map(x => ({ title: x.title, reason: x.reason })),
+        focusMin,
+        streak,
+      }).then(async c => {
+        if (!c) return;
+        await saveReview({ ...r, note: c });
+        onNote(`💬 今日点评：${c}`);
+      });
     } finally {
       setBusy(false);
     }

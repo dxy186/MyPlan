@@ -13,6 +13,7 @@ import {
   minutesToHM,
   saveJSON,
   todayStr,
+  weekdayOf,
 } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
@@ -221,11 +222,24 @@ export function reasonSummary(reviews: DailyReview[], days = 14): string {
 // 提醒设置与系统通知
 // ---------------------------------------------------------------------------
 export const REMINDER_KEY = '@myplan_reminder_settings';
-export type ReminderSettings = { enabled: boolean; leadMin: number; eveningReviewAt: number };
-export const DEFAULT_REMINDER: ReminderSettings = { enabled: false, leadMin: 0, eveningReviewAt: 21 * 60 };
+export type ReminderSettings = {
+  enabled: boolean;
+  leadMin: number;
+  eveningReviewAt: number;
+  /** 早上提醒看今天计划的时间（分钟），null = 不提醒 */
+  morningAt: number | null;
+};
+export const DEFAULT_REMINDER: ReminderSettings = { enabled: false, leadMin: 0, eveningReviewAt: 21 * 60, morningAt: 8 * 60 + 30 };
+
+/** 提醒被点开时要去哪：today = 打开日历里今天的弹窗；review = 今天页复盘；weekly = 每周小结 */
+export const OPEN_TARGET_EVENT = 'myplan:open-target';
+export type OpenTarget = 'today' | 'review' | 'weekly';
 
 export async function loadReminderSettings(): Promise<ReminderSettings> {
-  return { ...DEFAULT_REMINDER, ...(await loadJSON<Partial<ReminderSettings>>(REMINDER_KEY, {})) };
+  const saved = await loadJSON<Partial<ReminderSettings>>(REMINDER_KEY, {});
+  // 桌面版默认开启提醒（它就是为了在后台按时提醒才常驻托盘的）
+  const desktop = typeof window !== 'undefined' && !!(window as any).myplanDesktop;
+  return { ...DEFAULT_REMINDER, enabled: desktop, ...saved };
 }
 export async function saveReminderSettings(s: ReminderSettings) {
   await saveJSON(REMINDER_KEY, s);
@@ -242,12 +256,20 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return (await Notification.requestPermission()) === 'granted';
 }
 
-export function notify(title: string, body: string, tag?: string) {
+export function openTarget(target?: OpenTarget) {
+  if (typeof window === 'undefined') return;
+  // 桌面版：把隐藏在托盘里的窗口叫出来
+  (window as any).myplanDesktop?.show?.();
+  window.focus();
+  if (target) window.dispatchEvent(new CustomEvent(OPEN_TARGET_EVENT, { detail: { target } }));
+}
+
+export function notify(title: string, body: string, tag?: string, target?: OpenTarget) {
   if (!notificationSupported() || Notification.permission !== 'granted') return false;
   try {
     const n = new Notification(title, { body, tag });
     n.onclick = () => {
-      window.focus();
+      openTarget(target);
       n.close();
     };
     return true;
@@ -268,10 +290,10 @@ export function dueReminders(
   sent: Set<string>,
   reviewedToday: boolean,
   now = new Date()
-): { key: string; title: string; body: string }[] {
+): { key: string; title: string; body: string; target?: OpenTarget }[] {
   const today = todayStr();
   const cur = minuteNow(now);
-  const out: { key: string; title: string; body: string }[] = [];
+  const out: { key: string; title: string; body: string; target?: OpenTarget }[] = [];
   for (const i of schedule?.items ?? []) {
     if (i.date !== today) continue;
     if (i.type === 'task') {
@@ -291,16 +313,36 @@ export function dueReminders(
       }
     }
   }
+  // 早上：今天有几件事、第一件是什么
+  if (settings.morningAt !== null && settings.morningAt !== undefined) {
+    const mk = `morning:${today}`;
+    if (cur >= settings.morningAt && cur < settings.morningAt + 90 && !sent.has(mk)) {
+      const todays = (schedule?.items ?? [])
+        .filter(i => i.date === today && i.type === 'task' && i.endMin > cur)
+        .sort((a, b) => a.startMin - b.startMin);
+      const n = new Set(todays.map(i => i.taskId)).size;
+      out.push({
+        key: mk,
+        title: n ? `☀️ 今天有 ${n} 件事` : '☀️ 早上好，看看今天的安排',
+        body: todays[0] ? `第一件 ${minutesToHM(todays[0].startMin)} ${todays[0].title}。点开看今天的日历。` : '今天还没有排任务，点开在日历里记一下要做什么。',
+        target: 'today',
+      });
+    }
+  }
   const rk = `review:${today}`;
   if (!reviewedToday && cur >= settings.eveningReviewAt && cur < settings.eveningReviewAt + 60 && !sent.has(rk)) {
-    out.push({ key: rk, title: '🌙 花 1 分钟复盘今天', body: '打开 MyPlan，看看今天做完了什么，没做完的帮你顺延。' });
+    out.push({ key: rk, title: '🌙 花 1 分钟复盘今天', body: '打开 MyPlan，看看今天做完了什么，没做完的帮你顺延。', target: 'review' });
+  }
+  // 周日 20:00：每周小结
+  if (weekdayOf(today) === 0 && cur >= 20 * 60 && cur < 21 * 60 && !sent.has(`weekly:${today}`)) {
+    out.push({ key: `weekly:${today}`, title: '📅 本周小结出来了', body: '看看这周完成了多少、最好的一天是哪天，再定下周的重点。', target: 'weekly' });
   }
   return out;
 }
 
 export const SCHEDULE_STALE_EVENT = 'myplan:schedule-stale';
 export const IN_APP_REMINDER_EVENT = 'myplan:in-app-reminder';
-export type InAppReminder = { key: string; title: string; body: string; system: boolean };
+export type InAppReminder = { key: string; title: string; body: string; system: boolean; target?: OpenTarget };
 export const SENT_KEY = '@myplan__reminders_sent';
 
 /** 后台检查一次：发该发的提醒；有任务块刚结束时通知页面刷新排程 */
@@ -311,7 +353,7 @@ export async function reminderTick(sent: Set<string>, now = new Date()) {
   const reviewedToday = reviews.some(r => r.date === todayStr());
   if (settings.enabled) {
     for (const r of dueReminders(schedule, settings, sent, reviewedToday, now)) {
-      const system = notify(r.title, r.body, r.key);
+      const system = notify(r.title, r.body, r.key, r.target);
       // 系统通知不可用（比如在 Claude 内置浏览器里）时，用页面内提醒兜底
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent(IN_APP_REMINDER_EVENT, { detail: { ...r, system } }));
