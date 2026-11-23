@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 import AchievementsScreen from './achievements';
@@ -8,9 +8,11 @@ import GoalsScreen from './goals';
 import HistoryScreen from './history';
 import WoopScreen from './woop';
 import BackupScreen from '../components/backup/BackupScreen';
+import AssistantScreen, { FOCUS_ASSISTANT_EVENT } from '../components/assistant/AssistantScreen';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
+  { name: 'AI 秘书', key: 'assistant', icon: '🗣️' },
   { name: '日历进度', key: 'calendar', icon: '📅' },
   { name: 'SMART任务记录', key: 'goals', icon: '🎯' },
   { name: 'AI 助手', key: 'ai', icon: '🤖' },
@@ -21,15 +23,30 @@ const NAVS = [
 ];
 
 export default function RootLayout() {
-  const [activeKey, setActiveKey] = useState('calendar');
+  const [activeKey, setActiveKey] = useState('assistant');
   const { width } = useWindowDimensions();
 
   // 跳天时让整棵树重渲染，各页面里的「今天」才会跟着更新
   useTodayStr();
 
+  // Ctrl+K / ⌘K：随时跳到 AI 秘书并聚焦输入框
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setActiveKey('assistant');
+        setTimeout(() => window.dispatchEvent(new Event(FOCUS_ASSISTANT_EVENT)), 50);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
 
   const renderPage = () => {
     switch (activeKey) {
+      case 'assistant': return <AssistantScreen />;
       case 'calendar': return <CalendarScreen />;
       case 'goals': return <GoalsScreen />;
       case 'ai': return <AIScreen />;

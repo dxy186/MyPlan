@@ -13,6 +13,7 @@ import {
   ENERGY_SLOTS,
   FixedEvent,
   PlanTask,
+  TaskWindow,
   addDays,
   calibrateEstimate,
   diffDays,
@@ -67,6 +68,15 @@ export type ScheduleOptions = {
   playMinPerDay: number; // 每天强制"玩"的分钟数
   restDayWeekday?: number; // 每周缓冲日（0-6），当天不排任务
   speedFactor: number; // 速率校准系数（来自时间记录）
+  /** 第一天从这个时刻（分钟）之后才排任务，用于「从现在开始重排」 */
+  notBeforeMin?: number;
+};
+
+/** 偏好时段对应的分钟范围 */
+const WINDOW_RANGE: Record<TaskWindow, Interval> = {
+  morning: { start: 0, end: 12 * 60 },
+  afternoon: { start: 12 * 60, end: 18 * 60 },
+  evening: { start: 18 * 60, end: 24 * 60 },
 };
 
 export const DEFAULT_SCHEDULE_OPTIONS: ScheduleOptions = {
@@ -241,7 +251,10 @@ export function generateSchedule(
     if (!dayGaps.has(d)) {
       const isRest = opts.restDayWeekday !== undefined && weekdayOf(d) === opts.restDayWeekday;
       const extra = restBusy.get(d) ?? [];
-      const gaps = findGaps(d, opts, fixed, extra, isRest);
+      let gaps = findGaps(d, opts, fixed, extra, isRest);
+      if (d === start && opts.notBeforeMin !== undefined) {
+        gaps = subtract(gaps, [{ start: 0, end: opts.notBeforeMin }]);
+      }
       dayGaps.set(d, gaps);
       if (isRest) {
         items.push({
@@ -287,14 +300,16 @@ export function generateSchedule(
     }
   }
 
-  const consume = (d: string, chosen: Interval, need: number): Interval | null => {
+  const consume = (d: string, chosen: Interval, need: number, from = chosen.start): Interval | null => {
     const gaps = gapsFor(d);
     const idx = gaps.indexOf(chosen);
     if (idx === -1) return null;
-    const take = Math.min(need, chosen.end - chosen.start);
-    const used: Interval = { start: chosen.start, end: chosen.start + take };
+    const begin = Math.max(chosen.start, Math.min(from, chosen.end));
+    const take = Math.min(need, chosen.end - begin);
+    const used: Interval = { start: begin, end: begin + take };
     const rest = chosen.end - used.end;
     const remaining: Interval[] = [];
+    if (begin > chosen.start) remaining.push({ start: chosen.start, end: begin });
     if (rest > 0) remaining.push({ start: used.end, end: chosen.end });
     const next = gaps.slice();
     next.splice(idx, 1, ...remaining);
@@ -312,28 +327,34 @@ export function generateSchedule(
       if (!due || !dd) return true;
       return dd.getTime() <= due.getTime();
     });
-    const searchDays = candidates.length > 0 ? candidates : days;
+    const afterStart = candidates.filter(d => !task.notBefore || diffDays(task.notBefore, d) >= 0);
+    const searchDays = afterStart.length > 0 ? afterStart : candidates.length > 0 ? candidates : days;
+    const win = task.window ? WINDOW_RANGE[task.window] : null;
 
     let guard = 0;
     while (remaining > 0 && guard++ < 64) {
       const box = remaining > opts.maxFocusMin ? opts.maxFocusMin : Math.max(opts.minFocusMin, remaining);
-      let best: { day: string; gap: Interval; score: number } | null = null;
+      let best: { day: string; gap: Interval; from: number; score: number } | null = null;
       for (const d of searchDays) {
         const curve = curves.get(d) as Record<EnergySlotKey, number>;
         for (const g of gapsFor(d)) {
-          const length = g.end - g.start;
+          // 有偏好时段时，只用空档与该时段重叠的部分
+          const from = win ? Math.max(g.start, win.start) : g.start;
+          const until = win ? Math.min(g.end, win.end) : g.end;
+          const length = until - from;
           if (length < Math.min(box, opts.minFocusMin)) continue;
-          const slot = slotKeyOfMinute(g.start);
+          const slot = slotKeyOfMinute(from);
           const score = matchScore(task.energyCost, curve[slot]);
           // 越早越好：轻微惩罚靠后的日期
           const dayPenalty = -diffDays(start, d) * 0.25;
           if (!best || score + dayPenalty > best.score) {
-            best = { day: d, gap: g, score: score + dayPenalty };
+            best = { day: d, gap: g, from, score: score + dayPenalty };
           }
         }
       }
       if (!best) break;
-      const used = consume(best.day, best.gap, box);
+      const winEnd = win ? Math.min(best.gap.end, win.end) : best.gap.end;
+      const used = consume(best.day, best.gap, Math.min(box, winEnd - best.from), best.from);
       if (!used) break;
       const slot = slotKeyOfMinute(used.start);
       items.push({
