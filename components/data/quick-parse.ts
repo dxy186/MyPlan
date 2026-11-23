@@ -4,13 +4,38 @@
  *   !复习高数 90分钟     → 开头加 ! 表示高耗能
  *   15:00-17:00 开组会   → 固定日程（排程会避开）；也支持 15点-17点、15:00~17:00
  *   14:00 打电话 30分钟  → 只写开始时间也算固定日程，时长默认 60 分钟
+ *   每周二、四 8:00-10:00 高数课 → 每周重复的固定日程
  *   取快递              → 普通小任务（30 分钟、低耗能）
  */
 import { EnergyCost } from '@/app/utils/planning';
 
 export type QuickParsed =
   | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean }
-  | { kind: 'fixed'; title: string; start: string; end: string };
+  | { kind: 'fixed'; title: string; start: string; end: string; weekdays?: number[] };
+
+const WD: Record<string, number> = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+
+/** 「每周二、四」「每周一到五」→ [2,4] / [1,2,3,4,5] */
+function parseWeekly(text: string): { weekdays: number[]; rest: string } | null {
+  const m = text.match(/^每(?:周|星期|礼拜)([一二三四五六日天](?:\s*(?:[、,，和及]|到|至|-|~)\s*(?:周|星期)?[一二三四五六日天])*)\s*/);
+  if (!m) return null;
+  const body = m[1];
+  const out = new Set<number>();
+  const range = body.match(/^([一二三四五六日天])\s*(?:到|至|-|~)\s*(?:周|星期)?([一二三四五六日天])$/);
+  if (range) {
+    let a = WD[range[1]];
+    const b = WD[range[2]];
+    for (let i = 0; i < 7; i++) {
+      out.add(a);
+      if (a === b) break;
+      a = (a + 1) % 7;
+    }
+  } else {
+    for (const ch of body) if (ch in WD) out.add(WD[ch]);
+  }
+  if (out.size === 0) return null;
+  return { weekdays: [...out].sort(), rest: text.slice(m[0].length) };
+}
 
 function hm(h: number, m: number) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -51,6 +76,12 @@ export function quickParse(input: string): QuickParsed {
   if (/^[!！]/.test(text)) {
     high = true;
     text = text.replace(/^[!！]+\s*/, '');
+  }
+  // 每周重复：每周二、四 8:00-10:00 高数课
+  const weekly = parseWeekly(text);
+  if (weekly) {
+    const inner = quickParse(weekly.rest);
+    if (inner.kind === 'fixed') return { ...inner, weekdays: weekly.weekdays };
   }
   // 时间段：15:00-17:00 开组会
   const range = text.match(new RegExp(`^(${CLOCK})\\s*(?:-|~|～|到|至|—)\\s*(${CLOCK})\\s*(.+)$`));
