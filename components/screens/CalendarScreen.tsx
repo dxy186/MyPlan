@@ -14,7 +14,7 @@ import {
 import { Calendar } from 'react-native-calendars';
 import { getHolidayData } from '@/app/utils/holidays';
 import { solarToLunar } from '@/app/utils/lunar';
-import { applyActions, commitState, loadPlanState, setTaskDone } from '@/components/assistant/plan-store';
+import { applyActions, commitState, loadPlanState, saveState, setTaskDone } from '@/components/assistant/plan-store';
 import {
   CalendarItem,
   CalendarStyle,
@@ -296,6 +296,16 @@ function CalendarMain() {
     if (updates.order !== undefined) style.order = updates.order;
     if (Object.keys(style).length) await saveStyle(itemId, style);
     if (updates.completed !== undefined) {
+      // 没截止日、靠「完成日」显示的事项被取消完成：把截止日定在这天，免得它从日历上消失
+      const cur = calendarItems.find(i => i.id === itemId);
+      if (!updates.completed && cur) {
+        const before = await loadPlanState();
+        const t = allTasks(before.goals).find(r => r.task.id === itemId)?.task;
+        if (t && !t.due) {
+          t.due = cur.date;
+          await saveState(before);
+        }
+      }
       const st = await setTaskDone(itemId, updates.completed);
       await commitState(st);
     }

@@ -46,15 +46,25 @@ export async function saveCalendarStyles(styles: Record<string, CalendarStyle>) 
   await saveJSON(CAL_STYLE_KEY, styles);
 }
 
-/** 统一任务 → 日历事项（只有带截止日的任务会出现在日历格子里） */
+function localDay(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 统一任务 → 日历事项：
+ * - 带截止日的任务出现在截止日那天；
+ * - 没有截止日的任务，只要做完了（不管在今天页、任务页、计时、复盘还是跟 AI 说的），
+ *   就出现在完成的那一天，并且划掉。
+ */
 export function tasksToCalendarItems(state: PlanState, styles: Record<string, CalendarStyle>): CalendarItem[] {
   return allTasks(state.goals)
     // 被拆开的父任务不在日历里重复显示，它的子任务各自出现在自己那天
-    .filter(r => !!r.task.due && !r.task.split)
+    .filter(r => !r.task.split && (!!r.task.due || (r.task.done && !!r.task.doneAt)))
     .map(r => ({
       id: r.task.id,
       title: r.task.title,
-      date: r.task.due as string,
+      date: (r.task.due ?? localDay(r.task.doneAt as string)) as string,
       completed: r.task.done,
       parentTaskId: r.goal.id,
       ...styles[r.task.id],
