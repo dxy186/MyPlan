@@ -224,11 +224,19 @@ function CalendarMain() {
       await commitState(st);
     }
     if (updates.title !== undefined || updates.date !== undefined) {
+      // 「那天做」的事项挪到另一天时，开始日期跟着一起挪
+      let moveStart = false;
+      if (updates.date !== undefined) {
+        const st = await loadPlanState();
+        const t = allTasks(st.goals).find(r => r.task.id === itemId)?.task;
+        moveStart = !!t?.notBefore;
+      }
       await runTaskAction({
         type: 'update_task',
         taskId: itemId,
         ...(updates.title !== undefined ? { title: updates.title } : {}),
         ...(updates.date !== undefined ? { due: updates.date } : {}),
+        ...(updates.date !== undefined && moveStart ? { notBefore: updates.date } : {}),
       });
     }
   };
@@ -265,7 +273,8 @@ function CalendarMain() {
     const st = await loadPlanState();
     const before = new Set(st.goals.flatMap(g => g.milestones.flatMap(m => m.tasks.map(t => t.id))));
     const { next, changes } = applyActions(st, [
-      { type: 'add_task', title, due: date, estimateMin: 30, energyCost: 'low' },
+      // 写在哪天就是哪天做：不早于、也不晚于这一天
+      { type: 'add_task', title, due: date, notBefore: date, estimateMin: 30, energyCost: 'low' },
     ]);
     if (!changes[0]?.ok) return;
     const added = next.goals.flatMap(g => g.milestones.flatMap(m => m.tasks)).find(t => !before.has(t.id));
