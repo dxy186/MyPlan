@@ -6,11 +6,12 @@
  *   14:00 打电话 30分钟  → 只写开始时间也算固定日程，时长默认 60 分钟
  *   每周二、四 8:00-10:00 高数课 → 每周重复的固定日程
  *   取快递              → 普通小任务（30 分钟、低耗能）
+ *   ?写期末论文          → 开头加 ? ：加进去后马上让 AI 帮你拆成小步骤
  */
 import { EnergyCost } from '@/app/utils/planning';
 
 export type QuickParsed =
-  | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean }
+  | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean; breakdown?: boolean }
   | { kind: 'fixed'; title: string; start: string; end: string; weekdays?: number[] };
 
 const WD: Record<string, number> = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
@@ -73,6 +74,11 @@ export function parseDuration(text: string): { minutes: number; rest: string } |
 export function quickParse(input: string): QuickParsed {
   let text = input.trim();
   let high = false;
+  let breakdown = false;
+  if (/^[?？]/.test(text)) {
+    breakdown = true;
+    text = text.replace(/^[?？]+\s*/, '');
+  }
   if (/^[!！]/.test(text)) {
     high = true;
     text = text.replace(/^[!！]+\s*/, '');
@@ -110,5 +116,5 @@ export function quickParse(input: string): QuickParsed {
   const title = (d ? d.rest : text).trim() || text;
   const estimateMin = d ? d.minutes : high ? 60 : 30;
   const energyCost: EnergyCost = high ? 'high' : estimateMin <= 30 ? 'low' : 'medium';
-  return { kind: 'task', title, estimateMin, energyCost, explicitMin: !!d };
+  return { kind: 'task', title, estimateMin, energyCost, explicitMin: !!d, ...(breakdown ? { breakdown: true } : {}) };
 }

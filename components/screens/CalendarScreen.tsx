@@ -31,6 +31,7 @@ import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import { askAi } from '@/components/assistant/ask-bridge';
 import { loadReminderSettings } from '@/components/assistant/followup';
 import { quickParse } from '@/components/data/quick-parse';
+import { DATA_CHANGED_EVENT, openBreakdown } from '@/components/assistant/breakdown';
 import { startTaskTimer } from '@/components/assistant/gap';
 import { allTasks } from '@/components/assistant/plan-store';
 
@@ -248,6 +249,15 @@ function CalendarMain() {
     } catch {}
   };
 
+  // 拆解等其他地方改了数据：刷新日历
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onChange = () => loadCalendarItems();
+    window.addEventListener(DATA_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, onChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadCalendarItems();
     loadDateBgColors();
@@ -366,6 +376,12 @@ function CalendarMain() {
     if (added) await saveStyle(added.id, { textColor: newItemColor, bold: newItemBold });
     await commitState(next);
     await loadCalendarItems();
+    // 「?写期末论文」：加进去后马上让 AI 拆
+    if (parsed.breakdown && added) {
+      setModalVisible(false);
+      openBreakdown(added.id);
+      return;
+    }
   };
 
   const editItemDate = async (itemId: string, newDate: string) => {
@@ -780,6 +796,18 @@ function CalendarMain() {
                             <Text style={styles.playText}>▶</Text>
                           </TouchableOpacity>
                         )}
+                        {/* 让 AI 拆成小步骤 */}
+                        {!item.completed && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              setModalVisible(false);
+                              openBreakdown(item.id);
+                            }}
+                            style={styles.rowBtn}
+                          >
+                            <Text style={{ fontSize: 15 }}>🧩</Text>
+                          </TouchableOpacity>
+                        )}
                         {/* 事项调色盘按钮 - 编辑该事项的颜色/加粗 */}
                         <TouchableOpacity onPress={() => openItemEdit(item)} style={styles.rowBtn}>
                           <Text style={{ fontSize: 17 }}>🎨</Text>
@@ -900,7 +928,7 @@ function CalendarMain() {
                 <View style={styles.addContainer}>
                   <View style={styles.addRow}>
                     <TextInput
-                      placeholder="添加：写报告 2小时 / !复习 90分钟 / 15:00-17:00 开组会 / 每周二、四 8:00-10:00 高数课"
+                      placeholder="添加：写报告 2小时 / !复习 90分钟 / ?写论文（AI 帮拆）/ 15:00-17:00 开组会 / 每周二 8:00-10:00 上课"
                       value={addText}
                       style={[styles.addInput, { flex: 1 }]}
                       onChangeText={setAddText}

@@ -8,6 +8,7 @@ import SettingsScreen from '../components/screens/SettingsScreen';
 import TasksScreen from '../components/screens/TasksScreen';
 import ReminderService from '../components/assistant/ReminderService';
 import { ASK_AI_EVENT } from '../components/assistant/ask-bridge';
+import BreakdownHost from '../components/assistant/BreakdownHost';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
@@ -60,6 +61,7 @@ export default function RootLayout() {
   return (
     <View style={styles.container}>
       <ReminderService />
+      <BreakdownHost />
       <View style={styles.sidebar}>
         <Text style={styles.logo}>MyPlan</Text>
         {NAVS.map((item) => (
