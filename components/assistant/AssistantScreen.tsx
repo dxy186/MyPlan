@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 
 import { callChatJSON, getAiConfig } from '@/app/utils/ai';
-import { addDays, minutesToHM, todayStr } from '@/app/utils/planning';
+import { EnergyCost, PlanTask, TaskWindow, addDays, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
 import {
@@ -26,9 +26,11 @@ import {
   buildContext,
   commitState,
   loadPlanState,
+  allTasks,
   overrunTasks,
   replan,
   resolveOverrun,
+  spentByTask,
 } from './plan-store';
 
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
@@ -60,7 +62,120 @@ function nowMin() {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-function DayTimeline({ schedule, date, title, fromNow }: { schedule: ScheduleResult; date: string; title: string; fromNow?: boolean }) {
+const COST_OPTS: { key: EnergyCost; label: string; color: string }[] = [
+  { key: 'high', label: '高', color: '#D84315' },
+  { key: 'medium', label: '中', color: '#F9A825' },
+  { key: 'low', label: '低', color: '#2E7D32' },
+];
+const WINDOW_OPTS: { key: TaskWindow | null; label: string }[] = [
+  { key: null, label: '不限' },
+  { key: 'morning', label: '上午' },
+  { key: 'afternoon', label: '下午' },
+  { key: 'evening', label: '晚上' },
+];
+
+function CostPicker({ value, onChange }: { value?: EnergyCost; onChange: (c: EnergyCost) => void }) {
+  return (
+    <View style={styles.pickRow}>
+      <Text style={styles.pickLabel}>耗能</Text>
+      {COST_OPTS.map(c => (
+        <TouchableOpacity
+          key={c.key}
+          style={[styles.pick, value === c.key && { backgroundColor: c.color, borderColor: c.color }]}
+          onPress={() => onChange(c.key)}
+        >
+          <Text style={[styles.pickText, value === c.key && styles.pickTextOn]}>{c.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function MinutesInput({ value, onChange, label = '时长' }: { value: string; onChange: (v: string) => void; label?: string }) {
+  return (
+    <View style={styles.pickRow}>
+      <Text style={styles.pickLabel}>{label}</Text>
+      <TextInput
+        style={styles.minInput}
+        value={value}
+        onChangeText={t => onChange(t.replace(/[^0-9]/g, ''))}
+        keyboardType="number-pad"
+      />
+      <Text style={styles.pickLabel}>分钟</Text>
+    </View>
+  );
+}
+
+/** 点开已排任务后的编辑面板 */
+function TaskEditor({
+  task,
+  spent,
+  busy,
+  onSave,
+  onDone,
+  onClose,
+}: {
+  task: PlanTask;
+  spent: number;
+  busy: boolean;
+  onSave: (patch: { energyCost: EnergyCost; estimateMin: number; window: TaskWindow | null }) => void;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [cost, setCost] = useState<EnergyCost>(task.energyCost);
+  const [minutes, setMinutes] = useState(String(task.estimateMin));
+  const [win, setWin] = useState<TaskWindow | null>(task.window ?? null);
+  const min = Number(minutes);
+  const valid = min >= 5;
+  return (
+    <View style={styles.editor}>
+      <CostPicker value={cost} onChange={setCost} />
+      <MinutesInput value={minutes} onChange={setMinutes} label="总时长" />
+      {spent > 0 && <Text style={styles.mutedSmall}>已经做了 {spent} 分钟，排程只排剩下的部分。</Text>}
+      <View style={styles.pickRow}>
+        <Text style={styles.pickLabel}>时段</Text>
+        {WINDOW_OPTS.map(w => (
+          <TouchableOpacity key={w.label} style={[styles.pick, win === w.key && styles.pickOnBlue]} onPress={() => setWin(w.key)}>
+            <Text style={[styles.pickText, win === w.key && styles.pickTextOn]}>{w.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.btnRow}>
+        <TouchableOpacity
+          style={[styles.smallPrimary, (!valid || busy) && styles.btnDisabled]}
+          disabled={!valid || busy}
+          onPress={() => onSave({ energyCost: cost, estimateMin: min, window: win })}
+        >
+          <Text style={styles.smallPrimaryText}>保存并重排</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onDone}>
+          <Text style={styles.smallSecondaryText}>✅ 标记完成</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.smallSecondary} onPress={onClose}>
+          <Text style={styles.smallSecondaryText}>收起</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function DayTimeline({
+  schedule,
+  date,
+  title,
+  fromNow,
+  selectedId,
+  onSelect,
+  renderEditor,
+}: {
+  schedule: ScheduleResult;
+  date: string;
+  title: string;
+  fromNow?: boolean;
+  selectedId?: string | null;
+  onSelect?: (item: ScheduleItem | null) => void;
+  renderEditor?: (item: ScheduleItem) => React.ReactNode;
+}) {
   const cur = nowMin();
   const items = schedule.items
     .filter(i => i.date === date && (!fromNow || i.endMin > cur))
@@ -74,21 +189,31 @@ function DayTimeline({ schedule, date, title, fromNow }: { schedule: ScheduleRes
         items.map((it: ScheduleItem) => {
           const st = TYPE_STYLE[it.type] || TYPE_STYLE.task;
           const isNow = fromNow && it.startMin <= cur && it.endMin > cur;
+          const editable = !!onSelect && it.type === 'task' && !!it.taskId;
+          const open = editable && selectedId === it.id;
           return (
-            <View key={it.id} style={[styles.item, { backgroundColor: st.bg }, isNow && styles.itemNow]}>
-              <Text style={styles.itemTime}>
-                {minutesToHM(it.startMin)}–{minutesToHM(it.endMin)}
-              </Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.itemTitle, { color: st.color }]}>
-                  {isNow ? '▶ ' : ''}
-                  {it.title}
+            <View key={it.id}>
+              <TouchableOpacity
+                disabled={!editable}
+                onPress={() => onSelect?.(open ? null : it)}
+                style={[styles.item, { backgroundColor: st.bg }, isNow && styles.itemNow, open && styles.itemOpen]}
+              >
+                <Text style={styles.itemTime}>
+                  {minutesToHM(it.startMin)}–{minutesToHM(it.endMin)}
                 </Text>
-                <Text style={styles.itemMeta}>
-                  {st.label}
-                  {it.energyCost ? ` · ${COST_CN[it.energyCost]}` : ''}
-                </Text>
-              </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemTitle, { color: st.color }]}>
+                    {isNow ? '▶ ' : ''}
+                    {it.title}
+                  </Text>
+                  <Text style={styles.itemMeta}>
+                    {st.label}
+                    {it.energyCost ? ` · ${COST_CN[it.energyCost]}` : ''}
+                    {editable ? (open ? '' : ' · 点击修改') : ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              {open && renderEditor?.(it)}
             </View>
           );
         })
@@ -203,6 +328,39 @@ export default function AssistantScreen() {
       setError('保存失败：' + (e?.message || e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 直接改方案里某一项的耗能 / 时长，并刷新说明和预览
+  const editAction = (i: number, patch: { energyCost?: EnergyCost; estimateMin?: number }) => {
+    if (!proposal || !state) return;
+    const actions = proposal.actions.map((a, j) => (j === i ? ({ ...a, ...patch } as AssistantAction) : a));
+    const { changes } = applyActions(state, actions);
+    setProposal({ ...proposal, actions, changes });
+  };
+  const taskById = useMemo(() => new Map((state ? allTasks(state.goals) : []).map(r => [r.task.id, r.task])), [state]);
+  const spentMap = useMemo(() => spentByTask(state?.timeLogs ?? []), [state]);
+
+  // 时间轴上点开的任务块
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const runQuickAction = async (action: AssistantAction) => {
+    if (!state) return;
+    setEditBusy(true);
+    setError('');
+    try {
+      const fresh = await loadPlanState();
+      const { next, changes } = applyActions(fresh, [action]);
+      if (!changes[0]?.ok) throw new Error(changes[0]?.summary || '操作失败');
+      const sch = await commitState(next);
+      setState(next);
+      setSchedule(sch);
+      setSelected(null);
+      saveHistory([...history, { role: 'assistant', content: `${changes[0].summary}，已重新排程。`, at: new Date().toISOString() }]);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -333,20 +491,38 @@ export default function AssistantScreen() {
       {proposal && (
         <View style={styles.proposal}>
           <Text style={styles.cardTitle}>📝 调整方案（确认后才会生效）</Text>
-          {proposal.changes.map((c, i) => (
-            <TouchableOpacity key={i} style={styles.changeRow} onPress={() => toggle(i)} disabled={!c.ok}>
-              <View style={[styles.checkbox, proposal.enabled[i] && styles.checkboxOn, !c.ok && styles.checkboxOff]}>
-                {proposal.enabled[i] && <Text style={styles.checkMark}>✓</Text>}
+          {proposal.changes.map((c, i) => {
+            const a = proposal.actions[i];
+            const isTask = c.ok && (a.type === 'add_task' || a.type === 'update_task');
+            const base = a.type === 'update_task' ? taskById.get(a.taskId) : undefined;
+            const cost = isTask ? (a as { energyCost?: EnergyCost }).energyCost ?? base?.energyCost ?? 'medium' : undefined;
+            const est = isTask ? (a as { estimateMin?: number }).estimateMin ?? base?.estimateMin ?? 60 : undefined;
+            return (
+              <View key={i} style={styles.changeBlock}>
+                <TouchableOpacity style={styles.changeRow} onPress={() => toggle(i)} disabled={!c.ok}>
+                  <View style={[styles.checkbox, proposal.enabled[i] && styles.checkboxOn, !c.ok && styles.checkboxOff]}>
+                    {proposal.enabled[i] && <Text style={styles.checkMark}>✓</Text>}
+                  </View>
+                  <Text style={[styles.changeText, !c.ok && styles.changeSkipped]}>{c.summary}</Text>
+                </TouchableOpacity>
+                {isTask && proposal.enabled[i] && (
+                  <View style={styles.changeEdit}>
+                    <CostPicker value={cost} onChange={v => editAction(i, { energyCost: v })} />
+                    <MinutesInput
+                      value={String(est ?? '')}
+                      onChange={v => v && editAction(i, { estimateMin: Number(v) })}
+                    />
+                  </View>
+                )}
               </View>
-              <Text style={[styles.changeText, !c.ok && styles.changeSkipped]}>{c.summary}</Text>
-            </TouchableOpacity>
-          ))}
+            );
+          })}
           {preview && preview.schedule.unscheduled.length > 0 && (
             <Text style={styles.warn}>
               ⚠️ 截止前排不下：{preview.schedule.unscheduled.map(t => t.title).join('、')}
             </Text>
           )}
-          <Text style={styles.mutedSmall}>下面的「今天 / 明天」已按这个方案预览。不满意可以直接在上面继续说，比如“写报告放到上午”。</Text>
+          <Text style={styles.mutedSmall}>可以直接点「高 / 中 / 低」改耗能、改时长，下面的「今天 / 明天」会马上按新方案预览。也可以在上面继续跟我说，比如“写报告放到上午”。</Text>
           <View style={styles.btnRow}>
             <TouchableOpacity
               style={[styles.primaryBtn, (saving || !preview?.count) && styles.btnDisabled]}
@@ -374,10 +550,48 @@ export default function AssistantScreen() {
           {!preview && shown.unscheduled.length > 0 && (
             <Text style={styles.warn}>⚠️ 截止前排不下：{shown.unscheduled.map(t => t.title).join('、')}</Text>
           )}
-          <Text style={styles.mutedSmall}>{shown.risk.message}</Text>
+          <Text style={styles.mutedSmall}>
+            {shown.risk.message}
+            {!preview ? '  点任务块可以直接改耗能、时长、时段，或标记完成。' : ''}
+          </Text>
           <View style={styles.days}>
-            <DayTimeline schedule={shown} date={today} title="今天（从现在起）" fromNow />
-            <DayTimeline schedule={shown} date={addDays(today, 1)} title="明天" />
+            {[
+              { date: today, title: '今天（从现在起）', fromNow: true },
+              { date: addDays(today, 1), title: '明天', fromNow: false },
+            ].map(d => (
+              <DayTimeline
+                key={d.date}
+                schedule={shown}
+                date={d.date}
+                title={d.title}
+                fromNow={d.fromNow}
+                selectedId={selected}
+                onSelect={preview ? undefined : it => setSelected(it ? it.id : null)}
+                renderEditor={it => {
+                  const t = it.taskId ? taskById.get(it.taskId) : undefined;
+                  if (!t) return null;
+                  return (
+                    <TaskEditor
+                      key={t.id + t.estimateMin + t.energyCost}
+                      task={t}
+                      spent={spentMap.get(t.id) ?? 0}
+                      busy={editBusy}
+                      onClose={() => setSelected(null)}
+                      onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
+                      onSave={p =>
+                        runQuickAction({
+                          type: 'update_task',
+                          taskId: t.id,
+                          energyCost: p.energyCost,
+                          estimateMin: p.estimateMin,
+                          window: p.window,
+                        })
+                      }
+                    />
+                  );
+                }}
+              />
+            ))}
           </View>
         </View>
       )}
@@ -466,6 +680,21 @@ const styles = StyleSheet.create({
   overBtns: { flexDirection: 'row', flexWrap: 'wrap' },
   overBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#F0B29A', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 10, marginRight: 8, marginBottom: 6 },
   overBtnText: { fontSize: 13, color: '#BF360C' },
+  changeBlock: { marginBottom: 4 },
+  changeEdit: { marginLeft: 26, marginBottom: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  pickRow: { flexDirection: 'row', alignItems: 'center', marginRight: 14, marginVertical: 3 },
+  pickLabel: { fontSize: 13, color: '#666', marginRight: 6 },
+  pick: { borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, marginRight: 6, backgroundColor: '#fff' },
+  pickOnBlue: { backgroundColor: '#1976D2', borderColor: '#1976D2' },
+  pickText: { fontSize: 13, color: '#455A64' },
+  pickTextOn: { color: '#fff', fontWeight: '600' },
+  minInput: { width: 64, borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 6, fontSize: 14, backgroundColor: '#fff', marginRight: 6 },
+  editor: { backgroundColor: '#F7FAFF', borderRadius: 8, borderWidth: 1, borderColor: '#C9DCF5', padding: 10, marginTop: -2, marginBottom: 8 },
+  itemOpen: { borderWidth: 2, borderColor: '#90CAF9' },
+  smallPrimary: { backgroundColor: '#1976D2', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8, marginTop: 6 },
+  smallPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  smallSecondary: { backgroundColor: '#EEF1F5', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8, marginTop: 6 },
+  smallSecondaryText: { color: '#455A64', fontSize: 13, fontWeight: '600' },
   planCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E9F0', padding: 16, maxWidth: 820 },
   planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   link: { color: '#1976D2', fontSize: 14 },
