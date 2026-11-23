@@ -34,7 +34,7 @@ import {
 import { slotOfMinute } from './gap';
 import { AssistantAction, PlanState, applyActions, celebrate, commitState, loadPlanState } from './plan-store';
 import { computeStreak } from '@/components/data/streak';
-import { dailyComment } from './coach';
+import { dailyComment, loadPersona, personaLabel } from './coach';
 
 const TYPE_ICON: Record<string, string> = { task: '📝', fixed: '📌', play: '🎮', chore: '🧹' };
 
@@ -314,7 +314,7 @@ export function EveningCard({
       }).then(async c => {
         if (!c) return;
         await saveReview({ ...r, note: c });
-        onNote(`💬 今日点评：${c}`);
+        onNote(`${personaLabel(await loadPersona())}：${c}`);
       });
     } finally {
       setBusy(false);
