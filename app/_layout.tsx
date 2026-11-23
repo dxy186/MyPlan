@@ -2,23 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 import AssistantScreen, { FOCUS_ASSISTANT_EVENT } from '../components/assistant/AssistantScreen';
-import CalendarScreen from '../components/screens/CalendarScreen';
+import CalendarPage from '../components/screens/CalendarScreen';
 import ReviewScreen from '../components/screens/ReviewScreen';
 import SettingsScreen from '../components/screens/SettingsScreen';
 import TasksScreen from '../components/screens/TasksScreen';
 import ReminderService from '../components/assistant/ReminderService';
+import { ASK_AI_EVENT } from '../components/assistant/ask-bridge';
 import { useTodayStr } from '../hooks/use-today';
 
 const NAVS = [
+  { name: '日历', key: 'calendar', icon: '📅' },
   { name: '今天', key: 'today', icon: '🏠' },
   { name: '任务', key: 'tasks', icon: '📋' },
-  { name: '日历', key: 'calendar', icon: '📅' },
   { name: '复盘', key: 'review', icon: '📊' },
   { name: '设置', key: 'settings', icon: '⚙️' },
 ];
 
 export default function RootLayout() {
-  const [activeKey, setActiveKey] = useState('today');
+  const [activeKey, setActiveKey] = useState('calendar');
   const { width } = useWindowDimensions();
 
   // 跳天时让整棵树重渲染，各页面里的「今天」才会跟着更新
@@ -35,17 +36,24 @@ export default function RootLayout() {
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // 别的页面（日历弹窗）要问 AI：切到「今天」，今天页打开后会取走这句话并发送
+    const onAsk = () => setActiveKey('today');
+    window.addEventListener(ASK_AI_EVENT, onAsk);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(ASK_AI_EVENT, onAsk);
+    };
   }, []);
 
 
   const renderPage = () => {
     switch (activeKey) {
       case 'tasks': return <TasksScreen />;
-      case 'calendar': return <CalendarScreen />;
+      case 'calendar': return <CalendarPage />;
       case 'review': return <ReviewScreen />;
       case 'settings': return <SettingsScreen />;
-      default: return <AssistantScreen />;
+      case 'today': return <AssistantScreen />;
+      default: return <CalendarPage />;
     }
   };
 

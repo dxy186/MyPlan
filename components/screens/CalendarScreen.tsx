@@ -26,6 +26,13 @@ import EnergyPanel from '@/components/secretary/EnergyPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import { useTodayStr } from '@/hooks/use-today';
 
+import { KEYS, loadJSON, minutesToHM } from '@/app/utils/planning';
+import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
+import { askAi } from '@/components/assistant/ask-bridge';
+import { startTaskTimer } from '@/components/assistant/gap';
+import { allTasks } from '@/components/assistant/plan-store';
+
+import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
 import ScheduleOverview from './ScheduleOverview';
 
 // ---------- 数据 ----------
@@ -67,6 +74,9 @@ function isLastInStatus(list: CalendarItem[], index: number): boolean {
 function CalendarMain() {
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
+  // 自动排进各天的任务块（浅灰斜体显示，和自己写的事项区分）
+  const [scheduled, setScheduled] = useState<ScheduleItem[]>([]);
+  const [aiText, setAiText] = useState('');
   const [dateBgColors, setDateBgColors] = useState<Record<string, string | null>>({}); // null 表示透明
   const [modalVisible, setModalVisible] = useState(false);
   const [bgColorSettingsVisible, setBgColorSettingsVisible] = useState(false); // 背景色调色盘
@@ -112,7 +122,41 @@ function CalendarMain() {
       const styles = await loadCalendarStyles(st);
       setItemStyles(styles);
       setCalendarItems(tasksToCalendarItems(st, styles));
+      const sch = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
+      setScheduled((sch?.items ?? []).filter(i => i.type === 'task' && !!i.taskId));
+      if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event(SCHEDULE_UPDATED_EVENT));
     } catch {}
+  };
+
+  /** 某天自动排进来的任务（同一任务一天里的几段合并成一行），排除已经作为事项显示在这天的 */
+  const scheduledFor = (dateStr: string, shownIds: Set<string>) => {
+    const byTask = new Map<string, { taskId: string; title: string; start: number; end: number; minutes: number }>();
+    for (const i of scheduled) {
+      if (i.date !== dateStr || !i.taskId || shownIds.has(i.taskId)) continue;
+      const prev = byTask.get(i.taskId);
+      if (prev) {
+        prev.minutes += i.endMin - i.startMin;
+        prev.end = Math.max(prev.end, i.endMin);
+      } else byTask.set(i.taskId, { taskId: i.taskId, title: i.title, start: i.startMin, end: i.endMin, minutes: i.endMin - i.startMin });
+    }
+    return [...byTask.values()].sort((a, b) => a.start - b.start);
+  };
+
+  /** 弹窗里点 ▶：给这个任务开始计时，日历顶部会显示计时 */
+  const startTimerFor = async (taskId: string, plannedMin?: number) => {
+    const st = await loadPlanState();
+    const ref = allTasks(st.goals).find(r => r.task.id === taskId);
+    if (!ref || ref.task.done) return;
+    await startTaskTimer(ref.task, plannedMin);
+    setModalVisible(false);
+  };
+
+  const sendToAi = () => {
+    const text = aiText.trim();
+    if (!text) return;
+    setAiText('');
+    setModalVisible(false);
+    askAi(`关于 ${currentEditDate} 这天：${text}`);
   };
 
   /** 改任务 → 保存 → 从现在起重排 → 刷新日历 */
@@ -334,6 +378,7 @@ function CalendarMain() {
     const isToday = dateStr === todayStr;
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
     const itemLines = itemsToday.slice(0, 5);
+    const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(0, Math.max(0, 5 - itemLines.length));
 
     const currentMonthPrefix = currentMonth.slice(0, 7);
     const dateMonthPrefix = dateStr.slice(0, 7);
@@ -403,6 +448,16 @@ function CalendarMain() {
               ]}
             >
               {item.title}
+            </Text>
+          ))}
+          {autoLines.map(a => (
+            <Text
+              key={`auto-${a.taskId}`}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={[styles.itemText, styles.autoItemText, { opacity: isCurrentMonth ? 1 : 0.5 }]}
+            >
+              {a.title}
             </Text>
           ))}
         </View>
@@ -583,6 +638,12 @@ function CalendarMain() {
                             <Text style={[styles.arrowText, isLastInStatus(itemsForSelectedDay, idx) && styles.arrowDisabled]}>▼</Text>
                           </TouchableOpacity>
                         </View>
+                        {/* 开始计时 */}
+                        {!item.completed && (
+                          <TouchableOpacity onPress={() => startTimerFor(item.id)} style={styles.rowBtn}>
+                            <Text style={styles.playText}>▶</Text>
+                          </TouchableOpacity>
+                        )}
                         {/* 事项调色盘按钮 - 编辑该事项的颜色/加粗 */}
                         <TouchableOpacity onPress={() => openItemEdit(item)} style={styles.rowBtn}>
                           <Text style={{ fontSize: 17 }}>🎨</Text>
@@ -608,6 +669,27 @@ function CalendarMain() {
                       </View>
                     ))
                   )}
+                  {/* 自动排进这天的任务 */}
+                  {(() => {
+                    const autos = scheduledFor(currentEditDate, new Set(itemsForSelectedDay.map(i => i.id)));
+                    if (autos.length === 0) return null;
+                    return (
+                      <View style={styles.autoSection}>
+                        <Text style={styles.autoTitle}>🗓 自动排进这天的任务</Text>
+                        {autos.map(a => (
+                          <View key={a.taskId} style={styles.autoRow}>
+                            <Text style={styles.autoRowText} numberOfLines={1}>
+                              {minutesToHM(a.start)}–{minutesToHM(a.end)}　{a.title}
+                              <Text style={styles.autoMeta}>　{a.minutes} 分钟</Text>
+                            </Text>
+                            <TouchableOpacity onPress={() => startTimerFor(a.taskId, a.minutes)} style={styles.rowBtn}>
+                              <Text style={styles.playText}>▶</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
                 </ScrollView>
 
                 {/* 添加事项区域 */}
@@ -622,6 +704,19 @@ function CalendarMain() {
                     />
                     <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
                       <Text style={{ color: '#fff', fontSize: 15 }}>添加</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {/* 跟 AI 说这天的安排（会跳到「今天」页处理，方案确认后生效） */}
+                  <View style={[styles.addRow, { marginTop: 8 }]}>
+                    <TextInput
+                      placeholder="🤖 跟 AI 说这天的安排，比如：这天下午要开会，把作业挪到晚上"
+                      value={aiText}
+                      style={[styles.addInput, styles.aiInput, { flex: 1 }]}
+                      onChangeText={setAiText}
+                      onSubmitEditing={sendToAi}
+                    />
+                    <TouchableOpacity style={[styles.addBtn, styles.aiBtn]} onPress={sendToAi}>
+                      <Text style={{ color: '#fff', fontSize: 15 }}>问 AI</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -809,6 +904,15 @@ const styles = StyleSheet.create({
   dateInput: { borderBottomWidth: 1, borderColor: '#1976D2', fontSize: 13, minWidth: 90, marginLeft: 4, marginRight: 4, padding: 0, color: '#1976D2' },
   addContainer: { marginTop: 10 },
   addRow: { flexDirection: 'row', alignItems: 'center' },
+  autoItemText: { color: '#9E9E9E', fontStyle: 'italic', fontWeight: '400' },
+  playText: { color: '#1976D2', fontSize: 15 },
+  autoSection: { marginTop: 10, paddingTop: 8, borderTopWidth: 0.6, borderColor: '#e6e6ed' },
+  autoTitle: { fontSize: 13, color: '#888', marginBottom: 4 },
+  autoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+  autoRowText: { flex: 1, fontSize: 14, color: '#757575', fontStyle: 'italic' },
+  autoMeta: { fontSize: 12, color: '#aaa', fontStyle: 'normal' },
+  aiInput: { borderColor: '#B39DDB' },
+  aiBtn: { backgroundColor: '#7E57C2' },
   addInput: { flex: 1, padding: 8, borderWidth: 1, borderColor: '#e4e9f1', borderRadius: 8, fontSize: 15, backgroundColor: '#fff' },
   addBtn: { backgroundColor: '#1976D2', borderRadius: 17, marginLeft: 9, paddingHorizontal: 16, paddingVertical: 8 },
   newItemOptions: {
@@ -878,6 +982,7 @@ export default function CalendarPage() {
   const [subTab, setSubTab] = useState('main');
   return (
     <View style={{ flex: 1 }}>
+      <CalendarTopBar />
       <SubTabBar tabs={CALENDAR_PAGE_TABS} active={subTab} onChange={setSubTab} />
       {subTab === 'main' ? <CalendarMain /> : subTab === 'schedule' ? <ScheduleTab /> : <EnergyPanel />}
     </View>

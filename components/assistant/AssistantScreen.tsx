@@ -34,6 +34,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
+import { takePendingAsk } from './ask-bridge';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
@@ -371,6 +372,16 @@ export default function AssistantScreen() {
       setLoading(false);
     }
   };
+
+  // 从日历弹窗「问 AI」过来的话：页面数据就绪后自动发送
+  const askedRef = useRef(false);
+  useEffect(() => {
+    if (!state || askedRef.current) return;
+    askedRef.current = true;
+    const pendingAsk = takePendingAsk();
+    if (pendingAsk) send(pendingAsk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   const confirm = async () => {
     if (!preview) return;
