@@ -37,7 +37,24 @@ import GapPanel from './GapPanel';
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
 
-type Msg = { role: 'user' | 'assistant'; content: string; at: string };
+/** proposal：这条回复带的调整方案后来有没有被确认 */
+type Msg = { role: 'user' | 'assistant'; content: string; at: string; proposal?: 'pending' | 'applied' | 'dismissed' };
+
+/** 把还没确认的方案标记为某个状态 */
+function markPending(h: Msg[], to: 'applied' | 'dismissed'): Msg[] {
+  return h.map(m => (m.proposal === 'pending' ? { ...m, proposal: to } : m));
+}
+
+/** 发给 AI 的历史：没确认的方案要注明「没有生效」，免得 AI 以为已经加过了 */
+function historyForAi(h: Msg[]) {
+  return h.map(m => ({
+    role: m.role,
+    content:
+      m.role === 'assistant' && m.proposal && m.proposal !== 'applied'
+        ? `${m.content}\n（系统注：这个方案用户没有确认，没有生效，当前数据里没有这些改动。）`
+        : m.content,
+  }));
+}
 type Proposal = { reply: string; actions: AssistantAction[]; changes: AppliedChange[]; enabled: boolean[] };
 
 const EXAMPLES = [
@@ -283,7 +300,8 @@ export default function AssistantScreen() {
     setError('');
     setInput('');
     const userMsg: Msg = { role: 'user', content: text, at: new Date().toISOString() };
-    const h1 = [...history, userMsg];
+    // 发新消息时，上一个没确认的方案就作废了
+    const h1 = [...markPending(history, 'dismissed'), userMsg];
     saveHistory(h1);
     setLoading(true);
     try {
@@ -296,12 +314,15 @@ export default function AssistantScreen() {
       const result = await callChatJSON<{ reply?: string; actions?: AssistantAction[] }>([
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: `当前数据：\n${context}` },
-        ...h1.slice(-9, -1).map(m => ({ role: m.role, content: m.content })),
+        ...historyForAi(h1.slice(-9, -1)),
         { role: 'user', content: text + pendingNote },
       ]);
       const actions = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
       const reply = String(result.reply || (actions.length ? '我拟了一个调整方案，请确认。' : '好的。'));
-      saveHistory([...h1, { role: 'assistant', content: reply, at: new Date().toISOString() }]);
+      saveHistory([
+        ...h1,
+        { role: 'assistant', content: reply, at: new Date().toISOString(), ...(actions.length ? { proposal: 'pending' as const } : {}) },
+      ]);
       if (actions.length > 0) {
         const { changes } = applyActions(fresh, actions);
         setProposal({ reply, actions, changes, enabled: changes.map(c => c.ok) });
@@ -324,7 +345,10 @@ export default function AssistantScreen() {
       setState(preview.next);
       setSchedule(sch);
       setProposal(null);
-      saveHistory([...history, { role: 'assistant', content: `✔ 已应用 ${preview.count} 项调整，排程已更新。`, at: new Date().toISOString() }]);
+      saveHistory([
+        ...markPending(history, 'applied'),
+        { role: 'assistant', content: `✔ 已应用 ${preview.count} 项调整，排程已更新。`, at: new Date().toISOString() },
+      ]);
     } catch (e: any) {
       setError('保存失败：' + (e?.message || e));
     } finally {
@@ -544,7 +568,14 @@ export default function AssistantScreen() {
             >
               <Text style={styles.primaryText}>确认（{preview?.count ?? 0} 项）</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={() => setProposal(null)} disabled={saving}>
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={() => {
+                setProposal(null);
+                saveHistory(markPending(history, 'dismissed'));
+              }}
+              disabled={saving}
+            >
               <Text style={styles.secondaryText}>不用了</Text>
             </TouchableOpacity>
           </View>
