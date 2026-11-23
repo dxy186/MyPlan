@@ -35,6 +35,7 @@ import {
 import GapPanel from './GapPanel';
 import { EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
 import HabitsCard from './HabitsCard';
+import PhraseCard from './PhraseCard';
 import { appendBlockLog, buildInsights, habitsForAi, loadBlockLog } from './habits';
 import {
   MissedBlock,
@@ -71,13 +72,6 @@ function historyForAi(h: Msg[]) {
 }
 type Proposal = { reply: string; actions: AssistantAction[]; changes: AppliedChange[]; enabled: boolean[] };
 
-const EXAMPLES = [
-  '这周五前要交实验报告，大概要 4 个小时',
-  '今天下午 3 点到 5 点要开组会',
-  '高数作业做完了',
-  '把写报告挪到上午做',
-  '今晚想早点休息，帮我重新排一下',
-];
 
 const TYPE_STYLE: Record<string, { color: string; bg: string; label: string }> = {
   task: { color: '#1976D2', bg: '#E8F1FC', label: '任务' },
@@ -510,15 +504,12 @@ export default function AssistantScreen() {
             {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.sendText}>发送</Text>}
           </TouchableOpacity>
         </View>
-        {history.length === 0 && (
-          <View style={styles.chips}>
-            {EXAMPLES.map(ex => (
-              <TouchableOpacity key={ex} style={styles.chip} onPress={() => setInput(ex)}>
-                <Text style={styles.chipText}>{ex}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+        <PhraseCard
+          onPick={text => {
+            setInput(text);
+            inputRef.current?.focus();
+          }}
+        />
       </View>
 
       {state && !proposal && (
