@@ -331,11 +331,25 @@ export function generateSchedule(
     const searchDays = afterStart.length > 0 ? afterStart : candidates.length > 0 ? candidates : days;
     const win = task.window ? WINDOW_RANGE[task.window] : null;
 
+    // 截止前排不下的：仍然算「排不下」并提示，但把剩下的部分尽快排在截止之后，
+    // 免得任务从时间轴上消失（比如今天截止、今晚已经没空了 → 明天一早补上）
+    const overflowDays = task.due
+      ? days.filter(d => diffDays(task.due as string, d) > 0 && (!task.notBefore || diffDays(task.notBefore, d) >= 0))
+      : [];
+    const passes: { list: string[]; late: boolean }[] = [{ list: searchDays, late: false }];
+    if (overflowDays.length > 0) passes.push({ list: overflowDays, late: true });
+
+    let missedDeadline = false;
+    for (const pass of passes) {
+    if (pass.late) {
+      if (remaining <= 0) break;
+      missedDeadline = true;
+    }
     let guard = 0;
     while (remaining > 0 && guard++ < 64) {
       const box = remaining > opts.maxFocusMin ? opts.maxFocusMin : Math.max(opts.minFocusMin, remaining);
       let best: { day: string; gap: Interval; from: number; score: number } | null = null;
-      for (const d of searchDays) {
+      for (const d of pass.list) {
         const curve = curves.get(d) as Record<EnergySlotKey, number>;
         for (const g of gapsFor(d)) {
           // 有偏好时段时，只用空档与该时段重叠的部分
@@ -345,8 +359,8 @@ export function generateSchedule(
           if (length < Math.min(box, opts.minFocusMin)) continue;
           const slot = slotKeyOfMinute(from);
           const score = matchScore(task.energyCost, curve[slot]);
-          // 越早越好：轻微惩罚靠后的日期
-          const dayPenalty = -diffDays(start, d) * 0.25;
+          // 越早越好：轻微惩罚靠后的日期；已经超过截止的要尽快补，惩罚加重
+          const dayPenalty = -diffDays(start, d) * (pass.late ? 3 : 0.25);
           if (!best || score + dayPenalty > best.score) {
             best = { day: d, gap: g, from, score: score + dayPenalty };
           }
@@ -367,6 +381,7 @@ export function generateSchedule(
         taskId: task.id,
         energyCost: task.energyCost,
         slotKey: slot,
+        ...(pass.late ? { note: `已超过截止（${task.due}），尽快补上` } : {}),
       });
       // 时间盒之间强制休息
       const gaps = gapsFor(best.day);
@@ -378,7 +393,8 @@ export function generateSchedule(
       }
       remaining -= used.end - used.start;
     }
-    if (remaining > 0) unscheduled.push(task);
+    }
+    if (remaining > 0 || missedDeadline) unscheduled.push(task);
   }
 
   // 项目缓冲：在最后一个有 DDL 的日子留出缓冲块（可视化）
