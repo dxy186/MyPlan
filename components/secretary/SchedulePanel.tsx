@@ -48,6 +48,7 @@ import {
   generateSchedule,
   qualityTierFor,
 } from '@/app/utils/scheduler';
+import { loadPlanState, setTaskDone } from '@/components/assistant/plan-store';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -102,7 +103,8 @@ export default function SchedulePanel({ embedded = false }: Props = {}) {
 
   useEffect(() => {
     (async () => {
-      setGoals(await loadJSON<Goal[]>(KEYS.goals, []));
+      // 同步 SMART 任务后再读，和 AI 秘书看到的是同一份任务
+      setGoals((await loadPlanState()).goals);
       setLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
       setFixed(await loadJSON<FixedEvent[]>(KEYS.fixedEvents, []));
       const savedChores = await loadJSON<{ title: string; minutes: number }[]>(KEYS.choreTemplates, []);
@@ -218,16 +220,11 @@ export default function SchedulePanel({ embedded = false }: Props = {}) {
     setMessage(note);
   };
 
+  // 通过统一的数据层切换完成状态：SMART 同步来的任务会一并写回 SMART 页面和日历
   const toggleTaskDone = async (taskId: string) => {
-    const next = goals.map(g => ({
-      ...g,
-      milestones: g.milestones.map(m => ({
-        ...m,
-        tasks: m.tasks.map(t => (t.id === taskId ? { ...t, done: !t.done } : t)),
-      })),
-    }));
-    setGoals(next);
-    await saveJSON(KEYS.goals, next);
+    const cur = goals.flatMap(g => g.milestones.flatMap(m => m.tasks)).find(t => t.id === taskId);
+    const state = await setTaskDone(taskId, !cur?.done);
+    setGoals(state.goals);
   };
 
   const byDate = useMemo(() => {

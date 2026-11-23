@@ -18,13 +18,17 @@ import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import {
   AppliedChange,
   AssistantAction,
+  OVERRUN_OPTIONS,
+  OverrunChoice,
   PlanState,
   SYSTEM_PROMPT,
   applyActions,
   buildContext,
   commitState,
   loadPlanState,
+  overrunTasks,
   replan,
+  resolveOverrun,
 } from './plan-store';
 
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
@@ -209,6 +213,24 @@ export default function AssistantScreen() {
     setProposal({ ...proposal, enabled });
   };
 
+  const overruns = useMemo(() => (state ? overrunTasks(state) : []), [state]);
+  const [overBusy, setOverBusy] = useState(false);
+  const answerOverrun = async (taskId: string, choice: OverrunChoice) => {
+    setOverBusy(true);
+    setError('');
+    try {
+      const r = await resolveOverrun(taskId, choice);
+      setState(r.state);
+      setSchedule(r.schedule);
+      setProposal(null);
+      saveHistory([...history, { role: 'assistant', content: `${r.summary}，已从现在起重新排程。`, at: new Date().toISOString() }]);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setOverBusy(false);
+    }
+  };
+
   const today = todayStr();
   const shown = preview?.schedule ?? schedule;
   const recent = history.slice(-8);
@@ -274,6 +296,36 @@ export default function AssistantScreen() {
             </View>
           ))}
           {loading && <Text style={styles.muted}>正在结合你的任务进度思考…</Text>}
+        </View>
+      )}
+
+      {/* 超时跟进 */}
+      {overruns.length > 0 && !proposal && (
+        <View style={styles.overCard}>
+          <Text style={styles.cardTitle}>⏰ 这些任务超出预估了，还要多久？</Text>
+          {overruns.map(o => (
+            <View key={o.task.id} style={styles.overRow}>
+              <Text style={styles.overTitle}>
+                {o.task.title}
+                <Text style={styles.overMeta}>
+                  {'  '}预估 {o.task.estimateMin} 分钟 · 已做 {o.spent} 分钟{o.over > 0 ? ` · 超出 ${o.over} 分钟` : ''}
+                </Text>
+              </Text>
+              <View style={styles.overBtns}>
+                {OVERRUN_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[styles.overBtn, overBusy && styles.btnDisabled]}
+                    disabled={overBusy}
+                    onPress={() => answerOverrun(o.task.id, opt.choice)}
+                  >
+                    <Text style={styles.overBtnText}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+          <Text style={styles.mutedSmall}>点一下就会把剩下的时间排进后面的空档。也可以直接在上面跟我说具体情况。</Text>
         </View>
       )}
 
@@ -399,6 +451,21 @@ const styles = StyleSheet.create({
   primaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   secondaryBtn: { backgroundColor: '#EEF1F5', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
   secondaryText: { color: '#555', fontSize: 15, fontWeight: '600' },
+  overCard: {
+    backgroundColor: '#FFF6F2',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F5C6B5',
+    padding: 16,
+    marginBottom: 14,
+    maxWidth: 820,
+  },
+  overRow: { marginBottom: 10 },
+  overTitle: { fontSize: 15, fontWeight: '600', color: '#1a1a2e', marginBottom: 6 },
+  overMeta: { fontSize: 13, fontWeight: '400', color: '#8D6E63' },
+  overBtns: { flexDirection: 'row', flexWrap: 'wrap' },
+  overBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#F0B29A', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 10, marginRight: 8, marginBottom: 6 },
+  overBtnText: { fontSize: 13, color: '#BF360C' },
   planCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E9F0', padding: 16, maxWidth: 820 },
   planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   link: { color: '#1976D2', fontSize: 14 },
