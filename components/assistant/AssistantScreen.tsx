@@ -32,6 +32,7 @@ import {
   resolveOverrun,
   spentByTask,
 } from './plan-store';
+import GapPanel from './GapPanel';
 
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
@@ -438,6 +439,18 @@ export default function AssistantScreen() {
           </View>
         )}
       </View>
+
+      {state && !proposal && (
+        <GapPanel
+          state={state}
+          schedule={schedule}
+          onChanged={(s, sch) => {
+            setState(s);
+            setSchedule(sch);
+          }}
+          onNote={text => saveHistory([...history, { role: 'assistant', content: text, at: new Date().toISOString() }])}
+        />
+      )}
 
       {error ? (
         <View style={styles.errorBox}>
