@@ -16,6 +16,7 @@ import {
 } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
+import { BlockRecord } from './habits';
 import { PlanState, allTasks, spentByTask } from './plan-store';
 
 export function minuteNow(d = new Date()) {
@@ -86,6 +87,24 @@ export function findMissed(old: ScheduleResult | null, state: PlanState, now = n
       !done.has(i.taskId) &&
       !workedDuring(state.timeLogs, i.taskId, i.date, i.startMin, i.endMin)
   );
+}
+
+/** 旧排程里今天已经结束的任务块，以及有没有按时开始（写进习惯档案） */
+export function endedBlocks(old: ScheduleResult | null, state: PlanState, now = new Date()): BlockRecord[] {
+  if (!old) return [];
+  const today = todayStr();
+  const cur = minuteNow(now);
+  const done = new Set(allTasks(state.goals).filter(r => r.task.done).map(r => r.task.id));
+  return old.items
+    .filter(i => i.type === 'task' && i.taskId && i.date === today && i.endMin <= cur)
+    .map(i => ({
+      id: i.id,
+      date: i.date,
+      startMin: i.startMin,
+      endMin: i.endMin,
+      title: i.title,
+      started: done.has(i.taskId as string) || workedDuring(state.timeLogs, i.taskId as string, i.date, i.startMin, i.endMin),
+    }));
 }
 
 /** 把错过的块和新排程对应起来：挪到了哪里 */

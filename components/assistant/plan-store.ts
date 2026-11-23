@@ -32,6 +32,8 @@ import {
 } from '@/app/utils/planning';
 import { DEFAULT_SCHEDULE_OPTIONS, ScheduleResult, generateSchedule } from '@/app/utils/scheduler';
 
+import { MEMORIES_KEY, Memory, categoryFactors, categoryRatio, loadMemories } from './habits';
+
 // ---------------------------------------------------------------------------
 // 旧版 SMART 任务（app/goals.tsx 里的结构）
 // ---------------------------------------------------------------------------
@@ -61,6 +63,8 @@ export type PlanState = {
   timeLogs: TimeLog[];
   smartTasks: SmartTask[];
   calendar: CalendarItem[];
+  /** 用户亲口说过的长期偏好 */
+  memories: Memory[];
 };
 
 export type TaskRef = { task: PlanTask; goal: Goal; milestoneIdx: number };
@@ -121,17 +125,18 @@ export function syncSmartIntoGoals(goals: Goal[], smart: SmartTask[]): Goal[] {
 }
 
 export async function loadPlanState(): Promise<PlanState> {
-  const [goals, fixed, energyLogs, timeLogs, smartTasks, calendar] = await Promise.all([
+  const [goals, fixed, energyLogs, timeLogs, smartTasks, calendar, memories] = await Promise.all([
     loadJSON<Goal[]>(KEYS.goals, []),
     loadJSON<FixedEvent[]>(KEYS.fixedEvents, []),
     loadJSON<EnergyLog[]>(KEYS.energyLogs, []),
     loadJSON<TimeLog[]>(KEYS.timeLogs, []),
     loadJSON<SmartTask[]>(KEYS.tasks, []),
     loadJSON<CalendarItem[]>(KEYS.calendar, []),
+    loadMemories(),
   ]);
   const synced = syncSmartIntoGoals(goals, smartTasks);
   if (JSON.stringify(synced) !== JSON.stringify(goals)) await saveJSON(KEYS.goals, synced);
-  return { goals: synced, fixed, energyLogs, timeLogs, smartTasks, calendar };
+  return { goals: synced, fixed, energyLogs, timeLogs, smartTasks, calendar, memories };
 }
 
 export function allTasks(goals: Goal[]): TaskRef[] {
@@ -158,18 +163,24 @@ function nowMinuteRounded(d = new Date()) {
 
 export function replan(state: PlanState, now = new Date()): ScheduleResult {
   const spent = spentByTask(state.timeLogs);
+  const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
+  // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下
+  const cats = categoryFactors(state.timeLogs, state.goals);
   const pending = allTasks(state.goals)
     .filter(r => !r.task.done)
     .map(r => ({
       ...r.task,
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
-      estimateMin: Math.max(15, r.task.estimateMin - (spent.get(r.task.id) ?? 0)),
+      estimateMin: Math.max(
+        15,
+        Math.round((r.task.estimateMin - (spent.get(r.task.id) ?? 0)) * categoryRatio(r.task, cats, sf))
+      ),
     }));
   return generateSchedule(pending, state.energyLogs, state.fixed, {
     ...DEFAULT_SCHEDULE_OPTIONS,
     startDate: todayStr(),
     notBeforeMin: nowMinuteRounded(now),
-    speedFactor: speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task)),
+    speedFactor: sf,
   });
 }
 
@@ -209,7 +220,9 @@ export type AssistantAction =
       end: string;
       kind?: FixedEvent['kind'];
     }
-  | { type: 'delete_fixed_event'; eventId: string };
+  | { type: 'delete_fixed_event'; eventId: string }
+  | { type: 'remember'; text: string }
+  | { type: 'forget'; memoryId: string };
 
 export type AppliedChange = { action: AssistantAction; summary: string; ok: boolean };
 
@@ -421,6 +434,20 @@ export function applyActions(
           changes.push({ action: a, ok: true, summary: `🗑️ 删除固定日程「${ev.title}」` });
           break;
         }
+        case 'remember': {
+          const text = String(a.text || '').trim();
+          if (!text) throw new Error('要记住的内容是空的');
+          next.memories = [...(next.memories ?? []), { id: randomId(), text, createdAt: new Date().toISOString() }];
+          changes.push({ action: a, ok: true, summary: `🧠 记住：${text}` });
+          break;
+        }
+        case 'forget': {
+          const mem = (next.memories ?? []).find(m => m.id === a.memoryId);
+          if (!mem) throw new Error('找不到这条偏好');
+          next.memories = (next.memories ?? []).filter(m => m.id !== a.memoryId);
+          changes.push({ action: a, ok: true, summary: `🧹 不再记住：${mem.text}` });
+          break;
+        }
         default:
           throw new Error('不认识的操作');
       }
@@ -438,6 +465,7 @@ export async function saveState(state: PlanState): Promise<void> {
     [KEYS.fixedEvents, JSON.stringify(state.fixed)],
     [KEYS.tasks, JSON.stringify(state.smartTasks)],
     [KEYS.calendar, JSON.stringify(state.calendar)],
+    [MEMORIES_KEY, JSON.stringify(state.memories ?? [])],
   ]);
 }
 
@@ -617,6 +645,8 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书，帮他把要�
 - {"type":"delete_task","taskId":"已有任务 id"}
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
 - {"type":"delete_fixed_event","eventId":"已有固定日程 id"}
+- {"type":"remember","text":"一句话的长期偏好，如：周末上午不安排学习"}
+- {"type":"forget","memoryId":"已有偏好 id"}
 
 规则：
 1. taskId / eventId 必须从当前数据里原样复制，不能编造。
@@ -629,4 +659,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书，帮他把要�
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
 9. 不要重复添加已存在的任务——是否存在只看「当前数据」。
 10. 对话历史里你说过的安排不一定生效了（用户可能没点确认）。一切以「当前数据」为准：用户要做的事如果当前数据里没有，就重新添加，不要说「已经加过了」。
-11. 如果数据里有「近 N 天复盘」：常见「估少了」就把预估再放宽；常见「太累了」就少排高耗能、多留休息；常见「被打断」就把任务切得更小。`;
+11. 如果数据里有「近 N 天复盘」：常见「估少了」就把预估再放宽；常见「太累了」就少排高耗能、多留休息；常见「被打断」就把任务切得更小。
+12. 用户说「记住…」「以后…」「我一般…」「我不喜欢…」这类长期偏好 → 用 remember 记下来；如果偏好是某个固定时间段不想做事（如「周末上午不想学习」「每晚 10 点后别排」），同时用 add_fixed_event 加每周重复的占位日程（标题以「🚫 不排任务：」开头，kind 用 other，每个相关的 weekday 各加一条），这样排程会自动避开。
+13. 「用户亲口说过的偏好」必须遵守；「从历史数据总结的习惯」用来调整预估和时段（例如某类任务常低估就多估一点，某时段常常没开始就别把重要的事排在那里，必要时用 window 指定时段）。
+14. 用户说「忘掉…」「不用再…」→ 用 forget 删掉对应偏好，并用 delete_fixed_event 删掉对应的占位日程。`;

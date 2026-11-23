@@ -34,9 +34,12 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import { EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
+import HabitsCard from './HabitsCard';
+import { appendBlockLog, buildInsights, habitsForAi, loadBlockLog } from './habits';
 import {
   MissedBlock,
   SCHEDULE_STALE_EVENT,
+  endedBlocks,
   filterUnseenMissed,
   findMissed,
   loadReviews,
@@ -271,6 +274,8 @@ export default function AssistantScreen() {
     const sch = await commitState(s); // 打开页面时从现在开始刷新一次排程
     setSchedule(sch);
     // 自动补排：错过的任务块已经被重新排进后面的空档，告诉用户挪到了哪里
+    // 习惯档案：记下每个已结束的任务块有没有按时开始
+    await appendBlockLog(endedBlocks(old, s));
     const unseen = await filterUnseenMissed(findMissed(old, s));
     if (unseen.length) {
       setMissed(prev => [...prev, ...matchMoved(unseen, sch)]);
@@ -337,7 +342,8 @@ export default function AssistantScreen() {
       if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到侧边栏「AI 助手」右上角「⚙️ 设置」里填入 DeepSeek API Key。');
       const fresh = await loadPlanState();
       setState(fresh);
-      const context = buildContext(fresh, schedule, new Date(), reasonSummary(await loadReviews()));
+      const insights = buildInsights(fresh.timeLogs, fresh.goals, await loadBlockLog(), reasonSummary(await loadReviews()));
+      const context = buildContext(fresh, schedule, new Date(), habitsForAi(insights, fresh.memories ?? []));
       const pendingNote = proposal ? '\n\n（注意：上一个方案用户还没确认，以下面的新要求为准重新给出完整方案。）' : '';
       const result = await callChatJSON<{ reply?: string; actions?: AssistantAction[] }>([
         { role: 'system', content: SYSTEM_PROMPT },
@@ -689,6 +695,13 @@ export default function AssistantScreen() {
             ))}
           </View>
         </View>
+      )}
+      {state && (
+        <HabitsCard
+          state={state}
+          onMemoriesChanged={m => setState({ ...state, memories: m })}
+          onAsk={text => send(text)}
+        />
       )}
       {!state && <ActivityIndicator style={{ marginTop: 24 }} />}
     </ScrollView>

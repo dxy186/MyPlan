@@ -38,6 +38,8 @@ export const KEY_LABELS: Record<string, string> = {
   '@myplan_daily_plans': '每日计划',
   '@myplan_reviews': '每日复盘',
   '@myplan_reminder_settings': '提醒设置',
+  '@myplan_memories': '记住的偏好',
+  '@myplan_block_log': '排程执行记录',
   '@myplan_ai_config': 'AI 设置（含 API Key）',
 };
 
