@@ -319,7 +319,7 @@ export async function reminderTick(sent: Set<string>, now = new Date()) {
       sent.add(r.key);
     }
   }
-  // 有任务块刚刚结束：让 AI 秘书页检查要不要补排
+  // 有任务块刚刚结束：让今天页检查要不要补排
   const cur = minuteNow(now);
   const today = todayStr();
   const justEnded = (schedule?.items ?? []).some(i => i.type === 'task' && i.date === today && i.endMin === cur);

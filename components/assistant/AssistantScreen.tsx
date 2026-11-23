@@ -33,7 +33,8 @@ import {
   spentByTask,
 } from './plan-store';
 import GapPanel from './GapPanel';
-import { EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
+import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
+import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
 import { appendBlockLog, buildInsights, habitsForAi, loadBlockLog } from './habits';
@@ -140,6 +141,7 @@ function TaskEditor({
   onSave,
   onDone,
   onClose,
+  onStart,
 }: {
   task: PlanTask;
   spent: number;
@@ -147,6 +149,7 @@ function TaskEditor({
   onSave: (patch: { energyCost: EnergyCost; estimateMin: number; window: TaskWindow | null }) => void;
   onDone: () => void;
   onClose: () => void;
+  onStart: () => void;
 }) {
   const [cost, setCost] = useState<EnergyCost>(task.energyCost);
   const [minutes, setMinutes] = useState(String(task.estimateMin));
@@ -173,6 +176,9 @@ function TaskEditor({
           onPress={() => onSave({ energyCost: cost, estimateMin: min, window: win })}
         >
           <Text style={styles.smallPrimaryText}>保存并重排</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onStart}>
+          <Text style={styles.smallSecondaryText}>▶ 开始计时</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onDone}>
           <Text style={styles.smallSecondaryText}>✅ 标记完成</Text>
@@ -334,7 +340,7 @@ export default function AssistantScreen() {
     setLoading(true);
     try {
       const cfg = await getAiConfig();
-      if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到侧边栏「AI 助手」右上角「⚙️ 设置」里填入 DeepSeek API Key。');
+      if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到「⚙️ 设置 → 🤖 AI」里填入 DeepSeek API Key。');
       const fresh = await loadPlanState();
       setState(fresh);
       const insights = buildInsights(fresh.timeLogs, fresh.goals, await loadBlockLog(), reasonSummary(await loadReviews()));
@@ -449,12 +455,18 @@ export default function AssistantScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>🗣️ AI 秘书</Text>
+      <Text style={styles.title}>🏠 今天</Text>
       <Text style={styles.subtitle}>
-        说出你要做什么、做完了什么、想怎么调整，我会结合你现有任务的进度重新安排。随时按 Ctrl+K 回到这里。
+        跟 AI 说你要做什么、做完了什么、想怎么调整，或者问它问题；它会结合你所有任务的进度重新安排。随时按 Ctrl+K 回到这里。
       </Text>
 
       <NowNextCard schedule={schedule} />
+      {state && (
+        <EnergyQuick
+          state={state}
+          onLogged={logs => setState({ ...state, energyLogs: logs })}
+        />
+      )}
       <MissedCard missed={missed} onClose={() => setMissed([])} />
       {state && !proposal && (
         <EveningCard
@@ -672,6 +684,11 @@ export default function AssistantScreen() {
                       spent={spentMap.get(t.id) ?? 0}
                       busy={editBusy}
                       onClose={() => setSelected(null)}
+                      onStart={async () => {
+                        await startTaskTimer(t, it.endMin - it.startMin);
+                        setSelected(null);
+                        if (Platform.OS === 'web') window.scrollTo?.({ top: 0, behavior: 'smooth' });
+                      }}
                       onDone={() => runQuickAction({ type: 'complete_task', taskId: t.id })}
                       onSave={p =>
                         runQuickAction({

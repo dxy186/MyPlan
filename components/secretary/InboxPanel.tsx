@@ -4,9 +4,8 @@
  * 功能：
  *  - Canvas / LMS 日历通过 iCal 订阅链接或粘贴 ICS 文本导入作业 DDL、考试
  *  - 自然语言手动补充（"下周三交机器学习项目报告" → 结构化任务）
- *  - 统一「任务池」，可一键进入 SMART 任务记录 / 日历
+ *  - 统一「任务池」，可一键加入任务（作为目标或日常小任务）
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import ICAL from 'ical.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -27,6 +26,7 @@ import {
   saveJSON,
   todayStr,
 } from '@/app/utils/planning';
+import { applyActions, commitState, loadPlanState } from '@/components/assistant/plan-store';
 
 type InboxSource = 'canvas' | 'manual' | 'email' | 'syllabus';
 
@@ -40,22 +40,6 @@ type InboxItem = {
   createdAt: string;
   imported?: boolean;
 };
-
-type RawTask = {
-  id: string;
-  title: string;
-  dueDate: string;
-  quadrant: string;
-  subtasks: { id: string; title: string; completed: boolean }[];
-  status: 'PENDING' | 'IN_PROGRESS' | 'FAILED';
-  createdAt: string;
-  updatedAt: string;
-  specific: string;
-  measurable: string;
-  relevant: string;
-};
-
-type CalendarItem = { id: string; title: string; date: string; completed: boolean; parentTaskId?: string };
 
 const SOURCE_LABEL: Record<InboxSource, string> = {
   canvas: '📚 Canvas',
@@ -187,40 +171,55 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
     }
   };
 
-  // ---------- 一键进入 SMART 任务记录 ----------
+  // ---------- 进入统一任务列表 ----------
+  /** 作为一个目标（作业 / 考试等需要几步完成的事） */
   const promoteToTask = async (item: InboxItem) => {
-    const raw = await AsyncStorage.getItem(KEYS.tasks);
-    const tasks: RawTask[] = raw ? JSON.parse(raw) : [];
+    const st = await loadPlanState();
     const now = new Date().toISOString();
-    const task: RawTask = {
+    const due = item.dueDate ? normalizeDate(item.dueDate) : '';
+    st.goals.unshift({
       id: randomId(),
       title: item.title,
-      dueDate: item.dueDate ? normalizeDate(item.dueDate) : todayStr(),
-      quadrant: 'important_urgent',
-      subtasks: [],
-      status: 'PENDING',
-      createdAt: now,
-      updatedAt: now,
       specific: item.detail || '',
       measurable: '',
+      achievable: '',
       relevant: item.course ? `课程：${item.course}` : '',
-    };
-    await AsyncStorage.setItem(KEYS.tasks, JSON.stringify([...tasks, task]));
+      due,
+      feasibility: 70,
+      difficulty: 2,
+      strategy: '',
+      milestones: [
+        {
+          id: randomId(),
+          title: item.title,
+          tasks: [
+            { id: randomId(), title: item.title, estimateMin: 60, energyCost: 'medium', due: due || undefined, deps: [], done: false, createdAt: now },
+          ],
+        },
+      ],
+      createdAt: now,
+      quadrant: 'important_urgent',
+      source: 'inbox',
+    });
+    await commitState(st);
     await persist(items.map(i => (i.id === item.id ? { ...i, imported: true } : i)));
-    setMessage(`「${item.title}」已进入 SMART 任务记录`);
+    setMessage(`「${item.title}」已加入任务（目标），可以到「全部任务」里改时长、拆步骤`);
   };
 
+  /** 作为一个小任务放进「日常安排」 */
   const addToCalendar = async (item: InboxItem) => {
-    const raw = await AsyncStorage.getItem(KEYS.calendar);
-    const cal: CalendarItem[] = raw ? JSON.parse(raw) : [];
+    const st = await loadPlanState();
     const date = item.dueDate ? normalizeDate(item.dueDate) : todayStr();
-    if (cal.some(c => c.title === item.title && c.date === date)) {
-      setMessage('日历里已有同名同日期的事项。');
+    const { next, changes } = applyActions(st, [
+      { type: 'add_task', title: item.title, due: date, estimateMin: 30, energyCost: 'low' },
+    ]);
+    if (!changes[0]?.ok) {
+      setMessage(changes[0]?.summary || '添加失败');
       return;
     }
-    cal.push({ id: randomId(), title: item.title, date, completed: false });
-    await AsyncStorage.setItem(KEYS.calendar, JSON.stringify(cal));
-    setMessage(`「${item.title}」已加入日历 ${date}`);
+    await commitState(next);
+    await persist(items.map(i => (i.id === item.id ? { ...i, imported: true } : i)));
+    setMessage(`「${item.title}」已加入日常安排，截止 ${date}`);
   };
 
   const handleDelete = async (id: string) => {
@@ -317,10 +316,10 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
                 {item.detail ? <Text style={styles.itemDetail} numberOfLines={2}>{item.detail}</Text> : null}
                 <View style={styles.actionRow}>
                   <TouchableOpacity style={styles.smallBtn} onPress={() => promoteToTask(item)}>
-                    <Text style={styles.smallBtnText}>→ SMART 任务</Text>
+                    <Text style={styles.smallBtnText}>🎯 作为目标</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.smallBtn} onPress={() => addToCalendar(item)}>
-                    <Text style={styles.smallBtnText}>📅 加日历</Text>
+                    <Text style={styles.smallBtnText}>📝 作为小任务</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.smallBtnDanger} onPress={() => handleDelete(item.id)}>
                     <Text style={styles.smallBtnDangerText}>删除</Text>

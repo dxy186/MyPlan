@@ -20,7 +20,7 @@ import {
   todayStr,
   weekdayOf,
 } from '@/app/utils/planning';
-import { DEFAULT_SCHEDULE_OPTIONS, ScheduleResult } from '@/app/utils/scheduler';
+import { ScheduleResult } from '@/app/utils/scheduler';
 
 import { PlanState, allTasks, spentByTask } from './plan-store';
 
@@ -97,7 +97,7 @@ export function freeWindow(state: PlanState, schedule: ScheduleResult | null, no
   const inside = blocks.find(b => b.start <= cur && b.end > cur);
   if (inside) return { minutes: 0, until: minutesToHM(inside.end), nextTitle: inside.title, busyWith: inside.title };
   const next = blocks.filter(b => b.start > cur).sort((a, b) => a.start - b.start)[0];
-  const dayEnd = DEFAULT_SCHEDULE_OPTIONS.dayEndMin;
+  const dayEnd = state.settings.dayEndMin;
   if (next) return { minutes: next.start - cur, until: minutesToHM(next.start), nextTitle: next.title };
   return { minutes: Math.max(0, dayEnd - cur), until: minutesToHM(dayEnd), nextTitle: '今天结束' };
 }
@@ -220,6 +220,8 @@ export function suggestForGap(
 // 见缝插针的计时（存起来，切换页面也不丢）
 // ---------------------------------------------------------------------------
 export const GAP_TIMER_KEY = '@myplan__gap_timer';
+/** 计时器开始 / 结束时广播，今天页的计时卡片会刷新 */
+export const TIMER_CHANGED_EVENT = 'myplan:timer-changed';
 
 export type GapTimer = { taskId: string; title: string; startAt: string; plannedMin: number; estimateMin: number };
 
@@ -229,6 +231,20 @@ export async function loadGapTimer(): Promise<GapTimer | null> {
 
 export async function saveGapTimer(t: GapTimer | null): Promise<void> {
   await saveJSON(GAP_TIMER_KEY, t);
+  if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event(TIMER_CHANGED_EVENT));
+}
+
+/** 从任意页面开始给某个任务计时（全应用只有这一个计时器） */
+export async function startTaskTimer(task: PlanTask, plannedMin?: number): Promise<GapTimer> {
+  const t: GapTimer = {
+    taskId: task.id,
+    title: task.title,
+    startAt: new Date().toISOString(),
+    plannedMin: plannedMin ?? Math.min(task.estimateMin, 90),
+    estimateMin: task.estimateMin,
+  };
+  await saveGapTimer(t);
+  return t;
 }
 
 /** 把这段计时写进时间记录，返回记录的分钟数 */
@@ -244,6 +260,7 @@ export async function recordGapTimer(t: GapTimer, end = new Date()): Promise<num
     endAt: end.toISOString(),
     minutes,
     estimateMin: t.estimateMin,
+    source: 'gap',
     createdAt: end.toISOString(),
   };
   await saveJSON(KEYS.timeLogs, [log, ...logs]);

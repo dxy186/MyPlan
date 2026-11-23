@@ -9,7 +9,7 @@
  *  - 实际 vs 预估对比，算出个人速率系数（规划谬误修正）
  *  - 今日统计与碎片时间周报
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -36,13 +36,7 @@ import {
   suggestFragment,
   todayStr,
 } from '@/app/utils/planning';
-import {
-  OVERRUN_OPTIONS,
-  OverrunChoice,
-  resolveOverrun,
-  loadPlanState,
-  setTaskDone,
-} from '@/components/assistant/plan-store';
+import { loadPlanState } from '@/components/assistant/plan-store';
 
 const CATEGORY_COLOR: Record<TimeLog['category'], string> = {
   任务: '#1976D2',
@@ -75,13 +69,6 @@ export default function TimeLogPanel() {
   const [chores, setChores] = useState<{ title: string; minutes: number }[]>(DEFAULT_CHORES);
   const [message, setMessage] = useState('');
 
-  // 计时器
-  const [runTitle, setRunTitle] = useState('');
-  const [runTaskId, setRunTaskId] = useState<string | undefined>(undefined);
-  const [startedAt, setStartedAt] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0); // 秒
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // 碎片时间
   const [fragType, setFragType] = useState<(typeof FRAGMENT_TYPES)[number]>('微恢复');
   const [fragMinutes, setFragMinutes] = useState('10');
@@ -89,7 +76,6 @@ export default function TimeLogPanel() {
   useEffect(() => {
     (async () => {
       setLogs(await loadJSON<TimeLog[]>(KEYS.timeLogs, []));
-      // 同步 SMART 任务后再读，和 AI 秘书看到的是同一份任务
       setGoals((await loadPlanState()).goals);
       setEnergyLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
       const savedChores = await loadJSON<{ title: string; minutes: number }[]>(KEYS.choreTemplates, []);
@@ -97,11 +83,6 @@ export default function TimeLogPanel() {
     })();
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
 
   const pendingTasks = useMemo(() => {
     const out: PlanTask[] = [];
@@ -109,11 +90,6 @@ export default function TimeLogPanel() {
     return out;
   }, [goals]);
 
-  const taskById = useMemo(() => {
-    const m = new Map<string, PlanTask>();
-    for (const t of pendingTasks) m.set(t.id, t);
-    return m;
-  }, [pendingTasks]);
 
   const persist = async (next: TimeLog[]) => {
     setLogs(next);
@@ -127,12 +103,6 @@ export default function TimeLogPanel() {
   const allPlanTasks = useMemo(() => goals.flatMap(g => g.milestones.flatMap(m => m.tasks)), [goals]);
   const factor = useMemo(() => speedFactor(logs, allPlanTasks), [logs, allPlanTasks]);
   const sampleCount = useMemo(() => speedSamples(logs, allPlanTasks).length, [logs, allPlanTasks]);
-
-  // 这个任务之前已经计过的分钟数（不含正在计的这一段）
-  const spentBefore = useMemo(
-    () => (runTaskId ? logs.filter(l => l.taskId === runTaskId).reduce((s, l) => s + l.minutes, 0) : 0),
-    [logs, runTaskId]
-  );
 
   const today = todayStr();
   const todayLogs = useMemo(
@@ -160,90 +130,6 @@ export default function TimeLogPanel() {
     }
     return m;
   }, [logs]);
-
-  // ---------- 计时 ----------
-  const startTimer = () => {
-    if (timerRef.current) return;
-    const title = runTitle.trim() || (runTaskId ? taskById.get(runTaskId)?.title ?? '' : '');
-    if (!title) {
-      setMessage('先选一个任务，或者填一下要做什么');
-      return;
-    }
-    if (!runTitle.trim()) setRunTitle(title);
-    setStartedAt(isoNow());
-    setElapsed(0);
-    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
-    setMessage('开始计时，专注做一件事就好。');
-  };
-
-  const stopTimer = async (save: boolean) => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (!save || !startedAt) {
-      setStartedAt(null);
-      setElapsed(0);
-      setMessage('已取消计时');
-      return;
-    }
-    const minutes = Math.max(1, Math.round(elapsed / 60));
-    const estimateMin = runTaskId ? taskById.get(runTaskId)?.estimateMin : undefined;
-    const log: TimeLog = {
-      id: randomId(),
-      title: runTitle.trim() || '未命名任务',
-      taskId: runTaskId,
-      category: '任务',
-      startAt: startedAt,
-      endAt: isoNow(),
-      minutes,
-      estimateMin,
-      createdAt: isoNow(),
-    };
-    await persist([log, ...logs]);
-    setStartedAt(null);
-    setElapsed(0);
-    setMessage(
-      estimateMin
-        ? `记录完成：实际 ${minutes}min / 预估 ${estimateMin}min（速率已更新）`
-        : `记录完成：${fmtDuration(minutes)}`
-    );
-  };
-
-  // 通过统一的数据层标记完成：SMART 同步来的任务会一并写回 SMART 页面和日历
-  const markTaskDone = async (taskId: string) => {
-    const state = await setTaskDone(taskId, true);
-    setGoals(state.goals);
-  };
-
-  // ---------- 超时跟进 ----------
-  const [overBusy, setOverBusy] = useState(false);
-  const answerOverrun = async (choice: OverrunChoice) => {
-    const taskId = runTaskId;
-    if (!taskId) return;
-    setOverBusy(true);
-    try {
-      if ('done' in choice) {
-        await stopTimer(true);
-        await markTaskDone(taskId);
-        setMessage('已记录并标记完成，排程会把省下的时间让给别的任务。');
-      } else if (choice.tomorrow) {
-        await stopTimer(true);
-        const r = await resolveOverrun(taskId, choice);
-        setGoals(r.state.goals);
-        setMessage(`今天先到这里。${r.summary}，剩下的明天继续，已重新排程。`);
-      } else {
-        // 继续计时：把正在计的分钟也算进已投入
-        const r = await resolveOverrun(taskId, choice, Math.floor(elapsed / 60));
-        setGoals(r.state.goals);
-        setMessage(`${r.summary}，继续加油，排程已顺延。`);
-      }
-    } catch (e: any) {
-      setMessage('操作失败：' + (e?.message || e));
-    } finally {
-      setOverBusy(false);
-    }
-  };
 
   // ---------- 生活琐事 ----------
   const logChore = async (title: string, minutes: number) => {
@@ -297,11 +183,6 @@ export default function TimeLogPanel() {
   const nextTaskIsHigh = pendingTasks.some(t => t.energyCost === 'high');
   const fragmentTip = suggestFragment(latestEnergy?.score ?? 6, nextTaskIsHigh);
 
-  const elapsedText = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
-  const timerRunning = startedAt !== null;
-  const runningTask = runTaskId ? taskById.get(runTaskId) : undefined;
-  const runningTotal = spentBefore + Math.floor(elapsed / 60);
-  const isOverrun = timerRunning && !!runningTask && runningTotal >= runningTask.estimateMin;
   const calibrateDemo = calibrateEstimate(60, factor);
 
   return (
@@ -313,92 +194,11 @@ export default function TimeLogPanel() {
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
 
-      {/* 一键计时 */}
       <View style={styles.card}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.cardTitle}>一键计时</Text>
-          <Text style={[styles.clock, timerRunning && styles.clockRunning]}>{elapsedText}</Text>
-        </View>
-
-        <Text style={styles.label}>要做什么（可手填，或点下面的任务）</Text>
-        <TextInput
-          style={styles.input}
-          value={runTitle}
-          onChangeText={t => {
-            setRunTitle(t);
-            setRunTaskId(undefined);
-          }}
-          placeholder="例：写机器学习项目报告 - 数据清洗"
-          placeholderTextColor="#aaa"
-          editable={!timerRunning}
-        />
-
-        {pendingTasks.length > 0 ? (
-          <View style={styles.chipWrap}>
-            {pendingTasks.slice(0, 12).map(t => (
-              <TouchableOpacity
-                key={t.id}
-                style={[styles.chip, runTaskId === t.id && styles.chipActive]}
-                disabled={timerRunning}
-                onPress={() => {
-                  setRunTaskId(t.id);
-                  setRunTitle(t.title);
-                }}
-              >
-                <Text style={[styles.chipText, runTaskId === t.id && styles.chipTextActive]}>
-                  {t.energyCost === 'high' ? '🔴 ' : t.energyCost === 'medium' ? '🟡 ' : '🟢 '}
-                  {t.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : (
-          <Text style={styles.empty}>目标库里还没有任务，可以直接手填。</Text>
-        )}
-
-        <View style={styles.rowBetween}>
-          {!timerRunning ? (
-            <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={startTimer}>
-              <Text style={styles.primaryBtnText}>▶ 开始</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-              <TouchableOpacity style={[styles.primaryBtn, { flex: 1, backgroundColor: '#2E7D32' }]} onPress={() => stopTimer(true)}>
-                <Text style={styles.primaryBtnText}>■ 完成并记录</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.secondaryBtn, { flex: 1, marginTop: 16 }]} onPress={() => stopTimer(false)}>
-                <Text style={styles.secondaryBtnText}>取消</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        {isOverrun && runningTask ? (
-          <View style={styles.overBox}>
-            <Text style={styles.overTitle}>
-              ⏰ 已超出预估：预估 {runningTask.estimateMin} 分钟，已做 {runningTotal} 分钟。还要多久？
-            </Text>
-            <View style={styles.chipWrap}>
-              {OVERRUN_OPTIONS.map(opt => (
-                <TouchableOpacity
-                  key={opt.label}
-                  style={[styles.overBtn, overBusy && { opacity: 0.5 }]}
-                  disabled={overBusy}
-                  onPress={() => answerOverrun(opt.choice)}
-                >
-                  <Text style={styles.overBtnText}>{opt.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={styles.subText}>选「还要…」会继续计时并顺延排程；「明天继续」会先保存这段记录。</Text>
-          </View>
-        ) : null}
-
-        {timerRunning && runTaskId ? (
-          <TouchableOpacity style={styles.linkBtn} onPress={() => markTaskDone(runTaskId)}>
-            <Text style={styles.linkText}>把「{runTitle}」标记为已完成</Text>
-          </TouchableOpacity>
-        ) : null}
+        <Text style={styles.cardTitle}>⏱ 给任务计时</Text>
+        <Text style={styles.subText}>
+          计时器统一放在「🏠 今天」：点时间轴上的任务块「▶ 开始计时」、用「⚡ 我现在有空」，或在「📋 任务」里点任务旁的 ▶。做完的计时会自动出现在下面的记录里。
+        </Text>
       </View>
 
       {/* 生活琐事 */}

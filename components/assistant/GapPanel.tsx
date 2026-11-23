@@ -7,6 +7,7 @@ import {
   ENERGY_LEVEL_CN,
   EnergyLevel,
   GapTimer,
+  TIMER_CHANGED_EVENT,
   currentEnergy,
   freeWindow,
   loadGapTimer,
@@ -14,7 +15,17 @@ import {
   saveGapTimer,
   suggestForGap,
 } from './gap';
-import { PlanState, commitState, loadPlanState, setTaskDone } from './plan-store';
+import {
+  OVERRUN_OPTIONS,
+  OverrunChoice,
+  PlanState,
+  allTasks,
+  commitState,
+  loadPlanState,
+  resolveOverrun,
+  setTaskDone,
+  spentByTask,
+} from './plan-store';
 
 const DURATIONS = [10, 15, 25, 45, 60];
 const LEVELS: EnergyLevel[] = ['high', 'medium', 'low'];
@@ -46,12 +57,16 @@ export default function GapPanel({
 
   // 恢复正在进行的计时（切换页面后回来）
   useEffect(() => {
-    loadGapTimer().then(t => {
-      if (t) {
+    const sync = () =>
+      loadGapTimer().then(t => {
         setTimer(t);
-        setOpen(true);
-      }
-    });
+        if (t) setOpen(true);
+      });
+    sync();
+    // 在别的地方（时间轴、任务页）开始计时时同步过来
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    window.addEventListener(TIMER_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(TIMER_CHANGED_EVENT, sync);
   }, []);
 
   useEffect(() => {
@@ -138,6 +153,41 @@ export default function GapPanel({
     const elapsed = Math.max(0, Math.floor((Date.now() - new Date(timer.startAt).getTime()) / 1000));
     void tick;
     const over = elapsed > timer.plannedMin * 60;
+    // 超出整个任务的预估：问还要多久
+    const task = allTasks(state.goals).find(r => r.task.id === timer.taskId)?.task;
+    const before = spentByTask(state.timeLogs).get(timer.taskId) ?? 0;
+    const total = before + Math.floor(elapsed / 60);
+    const overrun = !!task && total >= task.estimateMin;
+    const answerOverrun = async (choice: OverrunChoice) => {
+      setBusy(true);
+      try {
+        if ('done' in choice) {
+          await recordGapTimer(timer);
+          setTimer(null);
+          await setTaskDone(timer.taskId, true);
+          const fresh = await loadPlanState();
+          onChanged(fresh, await commitState(fresh));
+          onNote(`✅「${timer.title}」做完了，已重新排程。`);
+          setOpen(false);
+        } else if (choice.tomorrow) {
+          const used = await recordGapTimer(timer);
+          setTimer(null);
+          const r = await resolveOverrun(timer.taskId, choice);
+          onChanged(r.state, r.schedule);
+          onNote(`⏱ 今天先做到这里（这次 ${used} 分钟）。${r.summary}，剩下的明天继续。`);
+          setOpen(false);
+        } else {
+          const r = await resolveOverrun(timer.taskId, choice, Math.floor(elapsed / 60));
+          onChanged(r.state, r.schedule);
+          const t = { ...timer, plannedMin: Math.floor(elapsed / 60) + choice.addMin, estimateMin: before + Math.floor(elapsed / 60) + choice.addMin };
+          await saveGapTimer(t);
+          setTimer(t);
+          onNote(`${r.summary}，继续计时，后面的安排已顺延。`);
+        }
+      } finally {
+        setBusy(false);
+      }
+    };
     return (
       <View style={styles.card}>
         <Text style={styles.title}>⏱ 正在做：{timer.title}</Text>
@@ -145,6 +195,25 @@ export default function GapPanel({
         <Text style={styles.muted}>
           计划 {timer.plannedMin} 分钟{over ? '，已经到时间了，可以收尾' : ''}。切换页面不会中断计时。
         </Text>
+        {overrun && task && (
+          <View style={styles.overBox}>
+            <Text style={styles.overTitle}>
+              ⏰ 已超出这个任务的预估：预估 {task.estimateMin} 分钟，已做 {total} 分钟。还要多久？
+            </Text>
+            <View style={styles.pickRow}>
+              {OVERRUN_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={[styles.pick, busy && styles.disabled]}
+                  disabled={busy}
+                  onPress={() => answerOverrun(opt.choice)}
+                >
+                  <Text style={styles.pickText}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
         <View style={styles.row}>
           <TouchableOpacity style={[styles.primary, busy && styles.disabled]} disabled={busy} onPress={finishChunk}>
             <Text style={styles.primaryText}>■ 这段做完了</Text>
@@ -314,4 +383,6 @@ const styles = StyleSheet.create({
   secondary: { backgroundColor: '#EEF1F5', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16 },
   secondaryText: { color: '#555', fontSize: 15, fontWeight: '600' },
   disabled: { opacity: 0.5 },
+  overBox: { backgroundColor: '#FFF6F2', borderRadius: 10, borderWidth: 1, borderColor: '#F5C6B5', padding: 10, marginBottom: 8 },
+  overTitle: { fontSize: 14, fontWeight: '600', color: '#BF360C', marginBottom: 6 },
 });

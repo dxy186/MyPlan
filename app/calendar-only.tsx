@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import CalendarPage from './calendar'; // 复用日历组件
+import CalendarPage from '../components/screens/CalendarScreen'; // 复用日历页面
 
 export default function CalendarOnlyScreen() {
   const openFullApp = () => {
