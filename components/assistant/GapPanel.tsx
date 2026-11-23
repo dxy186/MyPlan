@@ -142,7 +142,11 @@ export default function GapPanel({
       <TouchableOpacity style={styles.openBtn} onPress={() => setOpen(true)}>
         <Text style={styles.openText}>⚡ 我现在有空</Text>
         <Text style={styles.openSub}>
-          {win.minutes > 0 ? `到 ${win.until}（${win.nextTitle}）还有 ${win.minutes} 分钟` : `现在在「${win.busyWith}」中`}
+          {win.minutes > 0
+            ? `到 ${win.until}（${win.nextTitle}）还有 ${win.minutes} 分钟`
+            : win.busyWith
+            ? `现在在「${win.busyWith}」中`
+            : `已过今天的作息时间（${win.until}）`}
         </Text>
       </TouchableOpacity>
     );
@@ -256,7 +260,9 @@ export default function GapPanel({
       <Text style={styles.muted}>
         {win.minutes > 0
           ? `到 ${win.until}（${win.nextTitle}）还有 ${win.minutes} 分钟。`
-          : `你现在在「${win.busyWith}」中，到 ${win.until} 结束；如果其实有空，也可以选个时长。`}
+          : win.busyWith
+          ? `你现在在「${win.busyWith}」中，到 ${win.until} 结束；如果其实有空，也可以选个时长。`
+          : `已经过了今天的作息时间（${win.until}），早点休息吧；如果还想做点什么，可以选个时长。`}
       </Text>
 
       <View style={styles.pickRow}>
