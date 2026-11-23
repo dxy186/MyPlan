@@ -235,6 +235,7 @@ function DayTimeline({
                   <Text style={styles.itemMeta}>
                     {st.label}
                     {it.energyCost ? ` · ${COST_CN[it.energyCost]}` : ''}
+                    {it.note ? ` · ⚠️ ${it.note}` : ''}
                     {editable ? (open ? '' : ' · 点击修改') : ''}
                   </Text>
                 </View>
@@ -640,7 +641,9 @@ export default function AssistantScreen() {
             </TouchableOpacity>
           </View>
           {!preview && shown.unscheduled.length > 0 && (
-            <Text style={styles.warn}>⚠️ 截止前排不下：{shown.unscheduled.map(t => t.title).join('、')}</Text>
+            <Text style={styles.warn}>
+              ⚠️ 截止前排不下：{shown.unscheduled.map(t => t.title).join('、')}（已尽量排在截止后最早的空档，标了 ⚠️）
+            </Text>
           )}
           <Text style={styles.mutedSmall}>
             {shown.risk.message}
