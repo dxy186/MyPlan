@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { IN_APP_REMINDER_EVENT, InAppReminder, openTarget, reminderTick } from './followup';
+import { TIMER_CHANGED_EVENT, loadGapTimer } from './gap';
 
 function beep() {
   try {
@@ -33,9 +34,31 @@ function beep() {
 }
 
 let flashTimer: ReturnType<typeof setInterval> | null = null;
+let flashOriginal = '';
+function stopFlash() {
+  if (flashTimer) clearInterval(flashTimer);
+  flashTimer = null;
+  if (flashOriginal) document.title = flashOriginal;
+}
+
+/** 今天已经提醒过的（刷新页面也不重复提醒） */
+const SENT_KEY = '@myplan__reminders_sent';
+function loadSent(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SENT_KEY) || '{}');
+    if (raw.date === new Date().toDateString()) return new Set(raw.keys || []);
+  } catch {}
+  return new Set();
+}
+function saveSent(s: Set<string>) {
+  try {
+    localStorage.setItem(SENT_KEY, JSON.stringify({ date: new Date().toDateString(), keys: [...s].slice(-300) }));
+  } catch {}
+}
 function flashTitle(text: string) {
   if (flashTimer) clearInterval(flashTimer);
   const original = document.title.replace(/^【.*?】/, '');
+  flashOriginal = original;
   let on = false;
   let n = 0;
   flashTimer = setInterval(() => {
@@ -54,9 +77,19 @@ export default function ReminderService() {
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    const sent = new Set<string>();
+    let sent = loadSent();
+    let day = new Date().toDateString();
     const run = () => {
-      reminderTick(sent).catch(() => {});
+      if (new Date().toDateString() !== day) {
+        day = new Date().toDateString();
+        sent = new Set();
+      }
+      const before = sent.size;
+      reminderTick(sent)
+        .then(() => {
+          if (sent.size !== before) saveSent(sent);
+        })
+        .catch(() => {});
     };
     run();
     const id = setInterval(run, 30000);
@@ -68,9 +101,18 @@ export default function ReminderService() {
       if (!r.system) flashTitle('⏰ 提醒');
     };
     window.addEventListener(IN_APP_REMINDER_EVENT, onReminder);
+    // 开始计时了：收起这个任务的「该开始了」提醒，停止标题闪烁
+    const onTimer = async () => {
+      const t = await loadGapTimer();
+      if (!t) return;
+      setToasts(prev => prev.filter(x => x.taskId !== t.taskId));
+      stopFlash();
+    };
+    window.addEventListener(TIMER_CHANGED_EVENT, onTimer);
     return () => {
       clearInterval(id);
       window.removeEventListener(IN_APP_REMINDER_EVENT, onReminder);
+      window.removeEventListener(TIMER_CHANGED_EVENT, onTimer);
     };
   }, []);
 

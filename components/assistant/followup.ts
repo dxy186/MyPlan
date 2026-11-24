@@ -289,25 +289,30 @@ export function dueReminders(
   settings: ReminderSettings,
   sent: Set<string>,
   reviewedToday: boolean,
-  now = new Date()
-): { key: string; title: string; body: string; target?: OpenTarget }[] {
+  now = new Date(),
+  /** 正在计时的任务：已经开始做了，就不再提醒它「该开始了」 */
+  runningTaskId?: string
+): { key: string; title: string; body: string; target?: OpenTarget; taskId?: string }[] {
   const today = todayStr();
   const cur = minuteNow(now);
-  const out: { key: string; title: string; body: string; target?: OpenTarget }[] = [];
+  const out: { key: string; title: string; body: string; target?: OpenTarget; taskId?: string }[] = [];
   for (const i of schedule?.items ?? []) {
     if (i.date !== today) continue;
     if (i.type === 'task') {
       const at = i.startMin - settings.leadMin;
-      const key = `start:${i.id}`;
+      // 按「任务 + 日期」去重：排程从现在起重排时时间块会变，用块 id 会反复提醒同一个任务
+      const key = `start:${today}:${i.taskId ?? i.id}`;
+      if (i.taskId && i.taskId === runningTaskId) continue;
       if (cur >= at && cur < Math.min(i.endMin, at + 5) && !sent.has(key)) {
         out.push({
           key,
+          taskId: i.taskId,
           title: `⏰ ${minutesToHM(i.startMin)} 该开始了`,
           body: `${i.title}（到 ${minutesToHM(i.endMin)}）。没空的话打开 MyPlan，它会自动顺延。`,
         });
       }
     } else if (i.type === 'fixed') {
-      const key = `fixed:${i.id}`;
+      const key = `fixed:${today}:${i.title}:${i.startMin}`;
       if (cur >= i.startMin - 10 && cur < i.startMin && !sent.has(key)) {
         out.push({ key, title: `📌 ${i.startMin - cur} 分钟后：${i.title}`, body: `${minutesToHM(i.startMin)}–${minutesToHM(i.endMin)}` });
       }
@@ -342,7 +347,7 @@ export function dueReminders(
 
 export const SCHEDULE_STALE_EVENT = 'myplan:schedule-stale';
 export const IN_APP_REMINDER_EVENT = 'myplan:in-app-reminder';
-export type InAppReminder = { key: string; title: string; body: string; system: boolean; target?: OpenTarget };
+export type InAppReminder = { key: string; title: string; body: string; system: boolean; target?: OpenTarget; taskId?: string };
 export const SENT_KEY = '@myplan__reminders_sent';
 
 /** 后台检查一次：发该发的提醒；有任务块刚结束时通知页面刷新排程 */
@@ -351,8 +356,9 @@ export async function reminderTick(sent: Set<string>, now = new Date()) {
   const schedule = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
   const reviews = await loadReviews();
   const reviewedToday = reviews.some(r => r.date === todayStr());
+  const timer = await loadJSON<{ taskId?: string } | null>('@myplan__gap_timer', null);
   if (settings.enabled) {
-    for (const r of dueReminders(schedule, settings, sent, reviewedToday, now)) {
+    for (const r of dueReminders(schedule, settings, sent, reviewedToday, now, timer?.taskId)) {
       const system = notify(r.title, r.body, r.key, r.target);
       // 系统通知不可用（比如在 Claude 内置浏览器里）时，用页面内提醒兜底
       if (typeof window !== 'undefined') {
