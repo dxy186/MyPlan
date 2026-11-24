@@ -7,7 +7,7 @@ export type AttachedImage = { id: string; dataUrl: string; name: string };
 const MAX_SIDE = 2000;
 export const MAX_IMAGES = 6;
 
-export function fileToImage(file: File): Promise<AttachedImage> {
+export function fileToImage(file: File, maxSide = MAX_SIDE, quality = 0.88): Promise<AttachedImage> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) return reject(new Error('只能发图片'));
     const reader = new FileReader();
@@ -17,7 +17,7 @@ export function fileToImage(file: File): Promise<AttachedImage> {
       const img = new Image();
       img.onerror = () => reject(new Error('图片格式不支持'));
       img.onload = () => {
-        const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
         const w = Math.round(img.width * scale);
         const h = Math.round(img.height * scale);
         const canvas = document.createElement('canvas');
@@ -28,7 +28,7 @@ export function fileToImage(file: File): Promise<AttachedImage> {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        resolve({ id: Math.random().toString(36).slice(2), dataUrl: canvas.toDataURL('image/jpeg', 0.88), name: file.name || '截图' });
+        resolve({ id: Math.random().toString(36).slice(2), dataUrl: canvas.toDataURL('image/jpeg', quality), name: file.name || '截图' });
       };
       img.src = src;
     };

@@ -19,6 +19,7 @@ import BackupScreen from '@/components/backup/BackupScreen';
 import { DEFAULT_SETTINGS, ScheduleSettings, loadScheduleSettings, saveScheduleSettings } from '@/components/data/settings';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import QuickSyntaxGuide from '@/components/data/QuickSyntaxGuide';
+import CheerImagesCard from './CheerImagesCard';
 
 const TABS = [
   { key: 'schedule', label: '🕘 作息与排程' },
@@ -340,6 +341,7 @@ function ReminderPanel() {
         </TouchableOpacity>
         {msg ? <Text style={styles.ok}>{msg}</Text> : null}
       </View>
+      <CheerImagesCard />
     </ScrollView>
   );
 }
