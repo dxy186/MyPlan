@@ -51,6 +51,8 @@ function createStaticServer(rootDir, basePath) {
       urlPath = urlPath.slice(basePath.length);
     }
 
+    // 打包时 node_modules 子目录被改名成 __nm（见 scripts/copy-dist.js）
+    urlPath = urlPath.split('/node_modules/').join('/__nm/');
     let filePath = path.normalize(path.join(rootDir, urlPath));
     if (!filePath.startsWith(rootDir)) {
       res.writeHead(403);

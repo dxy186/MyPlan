@@ -174,6 +174,17 @@ export async function undoLastImport(): Promise<boolean> {
   return true;
 }
 
+/** 清空这台电脑上的全部 MyPlan 数据（任务、日记、设置、提醒记录…），可选保留 AI 设置 */
+export async function wipeAllData(keepAiConfig: boolean): Promise<void> {
+  const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith('@myplan') && !(keepAiConfig && k === AI_CONFIG_KEY));
+  await removeMany(keys);
+  if (typeof localStorage !== 'undefined') {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('@myplan') && !(keepAiConfig && k === AI_CONFIG_KEY)) localStorage.removeItem(k);
+    }
+  }
+}
+
 // ---------------- 仅网页 / 桌面版：下载与选择文件 ----------------
 
 export function downloadText(fileName: string, text: string) {
