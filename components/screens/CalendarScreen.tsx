@@ -509,12 +509,16 @@ function CalendarMain() {
     const dateStr = date.dateString;
     const isToday = dateStr === todayStr;
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
-    const itemLines = itemsToday.slice(0, 5);
+    // 没做完的、固定日程、自动排的在前；划掉的（做完的）沉到最后，格子放不下时先省略它们
+    const itemLines = itemsToday.filter(i => !i.completed).slice(0, 5);
     const fixedLines = fixedFor(dateStr).slice(0, Math.max(0, 5 - itemLines.length));
     const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(
       0,
       Math.max(0, 5 - itemLines.length - fixedLines.length)
     );
+    const doneLines = itemsToday
+      .filter(i => i.completed)
+      .slice(0, Math.max(0, 5 - itemLines.length - fixedLines.length - autoLines.length));
 
     const currentMonthPrefix = currentMonth.slice(0, 7);
     const dateMonthPrefix = dateStr.slice(0, 7);
@@ -605,6 +609,19 @@ function CalendarMain() {
               style={[styles.itemText, styles.autoItemText, { opacity: isCurrentMonth ? 1 : 0.5 }]}
             >
               {a.title}
+            </Text>
+          ))}
+          {doneLines.map(item => (
+            <Text
+              key={item.id}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={[
+                styles.itemText,
+                { color: '#b0b0b0', fontWeight: '400', textDecorationLine: 'line-through', opacity: isCurrentMonth ? 1 : 0.5 },
+              ]}
+            >
+              {item.title}
             </Text>
           ))}
         </View>
