@@ -228,7 +228,88 @@ function showWindow() {
   mainWindow.focus();
 }
 
+// ---------- 自定义图标：用户自己选的图片，只存在这台电脑上 ----------
+function customIconPath() {
+  return path.join(app.getPath('userData'), 'custom-icon.ico');
+}
+function customIconPng() {
+  return path.join(app.getPath('userData'), 'custom-icon.png');
+}
+function hasCustomIcon() {
+  return fs.existsSync(customIconPath()) && fs.existsSync(customIconPng());
+}
+
+/** 把一张 PNG 包成 .ico（Windows Vista 起支持 ICO 里直接放 PNG） */
+function pngToIco(pngBuf) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2); // 图标
+  header.writeUInt16LE(1, 4); // 1 张
+  const dir = Buffer.alloc(16);
+  dir.writeUInt8(0, 0); // 宽 256 记作 0
+  dir.writeUInt8(0, 1); // 高 256 记作 0
+  dir.writeUInt8(0, 2);
+  dir.writeUInt8(0, 3);
+  dir.writeUInt16LE(1, 4);
+  dir.writeUInt16LE(32, 6);
+  dir.writeUInt32LE(pngBuf.length, 8);
+  dir.writeUInt32LE(6 + 16, 12);
+  return Buffer.concat([header, dir, pngBuf]);
+}
+
+/** 桌面、开始菜单里指向 MyPlan 的快捷方式 */
+function myShortcuts() {
+  const dirs = [
+    app.getPath('desktop'),
+    path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+  ];
+  const out = [];
+  for (const d of dirs) {
+    try {
+      for (const f of fs.readdirSync(d)) {
+        if (!f.toLowerCase().endsWith('.lnk')) continue;
+        const p = path.join(d, f);
+        try {
+          const info = shell.readShortcutLink(p);
+          if (/myplan/i.test(f) || (info.target && path.basename(info.target).toLowerCase() === path.basename(exePath()).toLowerCase())) out.push(p);
+        } catch {}
+      }
+    } catch {}
+  }
+  return out;
+}
+
+function setShortcutIcons(iconPath) {
+  if (process.platform !== 'win32') return 0;
+  let n = 0;
+  for (const lnk of myShortcuts()) {
+    try {
+      const info = shell.readShortcutLink(lnk);
+      shell.writeShortcutLink(lnk, 'update', { ...info, icon: iconPath, iconIndex: 0 });
+      n++;
+    } catch (e) {
+      console.error('icon', lnk, e);
+    }
+  }
+  return n;
+}
+
+function applyWindowIcons() {
+  const img = hasCustomIcon() ? nativeImage.createFromPath(customIconPng()) : null;
+  if (img && !img.isEmpty()) {
+    mainWindow && mainWindow.setIcon(img);
+    tray && tray.setImage(img.resize({ width: 16, height: 16 }));
+  } else {
+    mainWindow && mainWindow.setIcon(path.join(__dirname, 'dist', 'favicon.ico'));
+    tray && tray.setImage(trayIcon());
+  }
+}
+
 function trayIcon() {
+  if (hasCustomIcon()) {
+    const img = nativeImage.createFromPath(customIconPng());
+    if (!img.isEmpty()) return img.resize({ width: 16, height: 16 });
+  }
   const candidates = [path.join(__dirname, 'dist', 'favicon.ico'), path.join(__dirname, 'icon.png')];
   for (const f of candidates) {
     if (fs.existsSync(f)) {
@@ -281,7 +362,7 @@ async function createWindow() {
     autoHideMenuBar: true,
     title: 'MyPlan',
     backgroundColor: '#F8FAFC',
-    icon: path.join(__dirname, 'dist', 'favicon.ico'),
+    icon: hasCustomIcon() ? customIconPng() : path.join(__dirname, 'dist', 'favicon.ico'),
     show: !START_HIDDEN,
     webPreferences: {
       contextIsolation: true,
@@ -346,8 +427,42 @@ if (!app.requestSingleInstanceLock()) {
   // 页面里点了系统通知 → 把窗口叫出来
   ipcMain.on('myplan:show-window', () => showWindow());
 
+  // 设置 → 桌面图标：换成用户自己的图片 / 恢复默认
+  ipcMain.handle('myplan:set-icon', async (_e, dataUrl) => {
+    let img = nativeImage.createFromDataURL(String(dataUrl || ''));
+    if (img.isEmpty()) throw new Error('图片读不出来');
+    // 补成正方形（白底居中），再放大到 256×256
+    const { width, height } = img.getSize();
+    const side = Math.max(width, height);
+    if (width !== height) {
+      const bmp = Buffer.alloc(side * side * 4, 255);
+      const src = img.toBitmap(); // BGRA
+      const ox = Math.floor((side - width) / 2);
+      const oy = Math.floor((side - height) / 2);
+      for (let y = 0; y < height; y++) src.copy(bmp, ((y + oy) * side + ox) * 4, y * width * 4, (y + 1) * width * 4);
+      img = nativeImage.createFromBitmap(bmp, { width: side, height: side });
+    }
+    const png = img.resize({ width: 256, height: 256, quality: 'best' }).toPNG();
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(customIconPng(), png);
+    fs.writeFileSync(customIconPath(), pngToIco(png));
+    applyWindowIcons();
+    return { shortcuts: setShortcutIcons(customIconPath()) };
+  });
+  ipcMain.handle('myplan:reset-icon', async () => {
+    try {
+      fs.rmSync(customIconPath(), { force: true });
+      fs.rmSync(customIconPng(), { force: true });
+    } catch {}
+    applyWindowIcons();
+    return { shortcuts: setShortcutIcons(exePath()) };
+  });
+  ipcMain.handle('myplan:has-icon', async () => hasCustomIcon());
+
   app.whenReady().then(() => {
     ensureStartMenuShortcut();
+    // 重新安装会生成新的快捷方式：有自定义图标的话再套一次
+    if (hasCustomIcon()) setShortcutIcons(customIconPath());
     // 第一次运行默认打开开机自启；之后以托盘菜单里的勾选为准
     const ds = loadDesktopSettings();
     if (ds.autostart === undefined) setAutostart(true);
