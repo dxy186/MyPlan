@@ -197,11 +197,8 @@ function TaskEditor({
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onDone}>
           <Text style={styles.smallSecondaryText}>✅ 标记完成</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.smallSecondary} onPress={onClose}>
-          <Text style={styles.smallSecondaryText}>收起</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={[styles.smallDanger, busy && styles.btnDisabled]} disabled={busy} onPress={onDelete}>
-          <Text style={styles.smallDangerText}>🗑️ 删除任务</Text>
+          <Text style={styles.smallDangerText}>🗑️ 删除</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -846,7 +843,7 @@ const styles = StyleSheet.create({
   changeText: { flex: 1, fontSize: 14, color: '#333', lineHeight: 20 },
   changeSkipped: { color: '#B07800' },
   warn: { fontSize: 13, color: '#BF360C', marginVertical: 6 },
-  btnRow: { flexDirection: 'row', alignItems: 'center' },
+  btnRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   primaryBtn: { backgroundColor: '#1976D2', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18, marginRight: 10 },
   primaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   secondaryBtn: { backgroundColor: '#EEF1F5', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
