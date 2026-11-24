@@ -70,15 +70,92 @@ export async function callChat(
   return data.choices?.[0]?.message?.content || '抱歉，我没有给出回复。';
 }
 
-/** 让模型输出 JSON，并容错地解析（去掉 ```json 包裹） */
+/** 模型没按 JSON 回复时抛出，raw 是它的原文（调用方可以当普通回复显示） */
+export class AiFormatError extends Error {
+  raw: string;
+  constructor(raw: string) {
+    super('AI 返回的格式不对');
+    this.raw = raw;
+  }
+}
+
+/** 宽松地从一段文字里抠出 JSON：去掉 ```json 包裹、注释、尾逗号、中文引号，找第一个配平的 {...} */
+export function parseLooseJSON<T>(text: string): T | null {
+  if (!text) return null;
+  const tries: string[] = [];
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) tries.push(fence[1]);
+  tries.push(text);
+  for (const t of tries) {
+    const start = t.indexOf('{');
+    if (start === -1) continue;
+    // 找配平的结束括号（跳过字符串里的括号）
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    let end = -1;
+    for (let i = start; i < t.length; i++) {
+      const c = t[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const body = end === -1 ? t.slice(start) : t.slice(start, end + 1);
+    const variants = [
+      body,
+      body
+        .replace(/\/\/[^\n"]*$/gm, '')
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'"),
+    ];
+    for (const v of variants) {
+      try {
+        return JSON.parse(v) as T;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * 让模型输出 JSON，并尽量容错：
+ * 1) 要求 JSON 输出模式（不支持的话自动退回普通模式）；2) 宽松解析；
+ * 3) 还不行就让模型把自己的回答「改写成 JSON」再试一次；4) 实在不行抛 AiFormatError（带原文）。
+ */
 export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: string; extra?: Record<string, unknown> }): Promise<T> {
-  const text = await callChat(messages, { temperature: 0.3, maxTokens: 6000, model: opts?.model, extra: opts?.extra });
-  const cleaned = text
-    .replace(/^```(?:json)?/i, '')
-    .replace(/```$/i, '')
-    .trim();
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  const json = start !== -1 && end !== -1 ? cleaned.slice(start, end + 1) : cleaned;
-  return JSON.parse(json) as T;
+  const base = { temperature: 0.3, maxTokens: 6000, model: opts?.model };
+  let text: string;
+  try {
+    text = await callChat(messages, { ...base, extra: { response_format: { type: 'json_object' }, ...(opts?.extra ?? {}) } });
+  } catch (e: any) {
+    if (!/response_format|json_object|json mode/i.test(String(e?.message))) throw e;
+    text = await callChat(messages, { ...base, extra: opts?.extra });
+  }
+  const first = parseLooseJSON<T>(text);
+  if (first) return first;
+  try {
+    const fixed = await callChat(
+      [
+        { role: 'system', content: '把用户给你的内容整理成一个合法的 JSON 对象并只输出这个 JSON。保持原意，不要增删信息。如果原文不是 JSON，就输出 {"reply": 原文, "actions": []}。' },
+        { role: 'user', content: text.slice(0, 12000) },
+      ],
+      { temperature: 0, maxTokens: 6000, extra: { response_format: { type: 'json_object' } } }
+    );
+    const second = parseLooseJSON<T>(fixed);
+    if (second) return second;
+  } catch {}
+  throw new AiFormatError(text);
 }
