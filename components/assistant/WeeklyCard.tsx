@@ -6,6 +6,7 @@ import { computeStreak } from '@/components/data/streak';
 import { WeeklySummary, buildWeekly, loadWeeklies, saveWeekly, weekToReview } from '@/components/data/weekly';
 
 import { PersonaSetting, loadPersona, personaLabel, weeklyComment } from './coach';
+import { addDiary } from '@/components/data/diary';
 import { loadReviews } from './followup';
 import { PlanState } from './plan-store';
 
@@ -53,6 +54,13 @@ export default function WeeklyCard({ state, force }: { state: PlanState; force?:
           const withC = { ...fresh, comment: c, commentBy: ps.id };
           setW(withC);
           await saveWeekly(withC);
+          // 每周小结也归档进日记（记在那周的周日）
+          await addDiary(
+            `${fresh.weekStart.slice(5)} – ${fresh.weekEnd.slice(5)}：完成 ${fresh.done} 项，专注 ${Math.round(fresh.focusMin / 6) / 10} 小时，${fresh.activeDays}/7 天有记录。\n${personaLabel(ps)}：${c}`,
+            'weekly',
+            fresh.weekEnd,
+            `weekly:${fresh.weekStart}`
+          );
         }
       }
     })();

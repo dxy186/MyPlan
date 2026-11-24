@@ -162,6 +162,7 @@ export type AssistantAction =
       goal?: string;
       steps: { title: string; estimateMin?: number; energyCost?: EnergyCost; date?: string; note?: string }[];
     }
+  | { type: 'add_diary'; text: string; date?: string }
   | { type: 'complete_task'; taskId: string }
   | { type: 'delete_task'; taskId: string }
   | {
@@ -417,6 +418,14 @@ export function applyActions(
             ok: true,
             summary: `🧩 把「${parent.title}」拆成 ${steps.length} 步：${steps.map(x => `${x.date.slice(5)} ${x.title}（${x.estimateMin} 分）`).join('；')}`,
           });
+          break;
+        }
+        case 'add_diary': {
+          // 日记单独存（components/data/diary.ts），这里只检查内容、生成说明；真正写入在界面里
+          const text = String(a.text || '').trim();
+          if (!text) throw new Error('日记内容是空的');
+          const d = safeDate(a.date) ?? todayStr();
+          changes.push({ action: a, ok: true, summary: `📔 写进 ${d.slice(5)} 的日记：${text.length > 40 ? text.slice(0, 40) + '…' : text}` });
           break;
         }
         case 'complete_task': {
@@ -756,6 +765,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 - {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","quadrant":"important_urgent|not_important_urgent|important_not_urgent|not_important_not_urgent（用户说了重要/紧急才填）","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
 - {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null","quadrant":"四象限 或 null"}  （只写要改的字段）
 - {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
+- {"type":"add_diary","text":"要写进日记的内容","date":"YYYY-MM-DD（默认今天，用户说了哪天才填）"}
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
@@ -784,4 +794,5 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 12. 用户说「记住…」「以后…」「我一般…」「我不喜欢…」这类长期偏好 → 用 remember 记下来；如果偏好是某个固定时间段不想做事（如「周末上午不想学习」「每晚 10 点后别排」），同时用 add_fixed_event 加每周重复的占位日程（标题以「🚫 不排任务：」开头，kind 用 other，每个相关的 weekday 各加一条），这样排程会自动避开。
 13. 「用户亲口说过的偏好」必须遵守；「从历史数据总结的习惯」用来调整预估和时段（例如某类任务常低估就多估一点，某时段常常没开始就别把重要的事排在那里，必要时用 window 指定时段）。
 14. 用户说「忘掉…」「不用再…」→ 用 forget 删掉对应偏好，并用 delete_fixed_event 删掉对应的占位日程。
-13. 无论用户怎么说（口语、错别字、一句话里好几件事、只是闲聊或抱怨），都要猜出他最可能的意图并照做；只有真的无法判断时才在 reply 里追问一句。永远只输出一个 JSON 对象 {"reply": "...", "actions": [...]}，不要在 JSON 外面写任何文字，不要用 markdown 代码块。`;
+13. 无论用户怎么说（口语、错别字、一句话里好几件事、只是闲聊或抱怨），都要猜出他最可能的意图并照做；只有真的无法判断时才在 reply 里追问一句。永远只输出一个 JSON 对象 {"reply": "...", "actions": [...]}，不要在 JSON 外面写任何文字，不要用 markdown 代码块。
+14. 用户说「写进日记 / 加入日记 / 记到日记里 / 记一下今天…」这类话 → 用 add_diary。text 用用户自己的原话（只去掉「帮我写进日记」这类指令词、改掉明显错别字，不要改写成别的语气，不要加评论）；同一句里如果还有别的安排要求，照常输出其他操作。reply 简短确认即可。`;

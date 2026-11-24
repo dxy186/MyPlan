@@ -36,6 +36,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
+import { addDiary } from '@/components/data/diary';
 import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
@@ -397,7 +398,7 @@ export default function AssistantScreen() {
     if (!proposal || !state) return null;
     const chosen = proposal.actions.filter((_, i) => proposal.enabled[i] && proposal.changes[i]?.ok);
     const { next } = applyActions(state, chosen);
-    return { next, schedule: replan(next), count: chosen.length };
+    return { next, schedule: replan(next), count: chosen.length, chosen };
   }, [proposal, state]);
 
   const send = async (raw?: string) => {
@@ -442,6 +443,19 @@ export default function AssistantScreen() {
       const seen = new Set(carried.map(a => JSON.stringify(a)));
       const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];
       let reply = String(result.reply || (actions.length ? '我拟了一个调整方案，请确认。' : '好的。'));
+      // 只是写日记：不用确认，直接写进去
+      if (actions.length > 0 && actions.every(a => a.type === 'add_diary')) {
+        const ok = applyActions(fresh, actions).changes.filter(c => c.ok);
+        for (const a of actions as { type: 'add_diary'; text: string; date?: string }[]) {
+          if (String(a.text || '').trim()) await addDiary(String(a.text), 'ai', /^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr());
+        }
+        saveHistory([
+          ...h1,
+          { role: 'assistant', content: `${reply}\n📔 已写进日记（${ok.length} 条），在「复盘 → 📔 日记」里能看到。`, at: new Date().toISOString() },
+        ]);
+        setProposal(null);
+        return;
+      }
       if (carried.length && fresh2.length) reply += `\n（上一个还没应用的 ${carried.length} 项也一起放进了这个方案。）`;
       if (actions.length) reply += '\n👉 点下面的「应用」后才会生效。';
       saveHistory([
@@ -488,6 +502,11 @@ export default function AssistantScreen() {
     setSaving(true);
     try {
       const sch = await commitState(preview.next);
+      for (const a of preview.chosen) {
+        if (a.type === 'add_diary' && String(a.text || '').trim()) {
+          await addDiary(String(a.text), 'ai', /^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr());
+        }
+      }
       setState(preview.next);
       setSchedule(sch);
       setProposal(null);
