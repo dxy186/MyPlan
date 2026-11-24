@@ -3,15 +3,16 @@
  * 今天的计划全部完成、今天第一次打卡（连续天数 +1）、断了一天又接上时，给更大的庆祝。
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { todayStr } from '@/app/utils/planning';
+import { randomCheerImage } from '@/components/data/cheer-images';
 import { computeStreak } from '@/components/data/streak';
 
 import { loadReviews } from './followup';
 import { CELEBRATE_EVENT, allTasks, loadPlanState } from './plan-store';
 
-type Show = { big: boolean; emoji: string; title: string; sub?: string };
+type Show = { big: boolean; emoji: string; title: string; sub?: string; img?: string | null };
 
 function chime(big: boolean) {
   try {
@@ -68,10 +69,12 @@ export default function CelebrationHost() {
       } else {
         s = { big: false, emoji: '✅', title: `完成「${title}」`, sub: remaining.length ? `今天还剩 ${remaining.length} 项` : undefined };
       }
+      if (title === '试一下效果') s = { big: true, emoji: '🎉', title: '这就是完成任务时的样子', sub: '每次随机一张' };
+      s.img = await randomCheerImage();
       setShow(s);
       chime(s.big);
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setShow(null), s.big ? 2600 : 1500);
+      timer.current = setTimeout(() => setShow(null), s.img ? (s.big ? 3200 : 2400) : s.big ? 2600 : 1500);
     };
     window.addEventListener(CELEBRATE_EVENT, onDone);
     return () => window.removeEventListener(CELEBRATE_EVENT, onDone);
@@ -80,9 +83,12 @@ export default function CelebrationHost() {
   if (!show) return null;
   return (
     <View style={styles.wrap} pointerEvents="none">
-      <View style={[styles.card, show.big && styles.cardBig]}>
-        <Text style={[styles.emoji, show.big && styles.emojiBig]}>{show.big ? `${show.emoji}✨${show.emoji}` : show.emoji}</Text>
-        <Text style={[styles.title, show.big && styles.titleBig]} numberOfLines={2}>
+      <View style={[styles.card, (show.big || show.img) && styles.cardBig]}>
+        {show.img ? (
+          <Image source={{ uri: show.img }} style={show.big ? styles.imgBig : styles.img} resizeMode="contain" />
+        ) : null}
+        <Text style={[styles.emoji, show.big && styles.emojiBig, !!show.img && { display: 'none' }]}>{show.big ? `${show.emoji}✨${show.emoji}` : show.emoji}</Text>
+        <Text style={[styles.title, (show.big || !!show.img) && styles.titleBig]} numberOfLines={2}>
           {show.title}
         </Text>
         {show.sub ? <Text style={styles.sub}>{show.sub}</Text> : null}
@@ -109,6 +115,8 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 22 },
   emojiBig: { fontSize: 44, marginBottom: 6 },
   title: { color: '#fff', fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  img: { width: 120, height: 120, borderRadius: 12, marginBottom: 8 },
+  imgBig: { width: 200, height: 200, borderRadius: 14, marginBottom: 10 },
   titleBig: { color: '#1a1a2e', fontSize: 22 },
   sub: { color: '#607D8B', fontSize: 14, marginTop: 4, textAlign: 'center' },
 });
