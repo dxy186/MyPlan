@@ -208,6 +208,7 @@ function CalendarMain() {
 
   /** 自动排进来的任务（没有截止日、不在「我的事项」里的）直接勾完成 */
   const completeTask = async (taskId: string) => {
+    setModalVisible(false);
     const st = await setTaskDone(taskId, true);
     await commitState(st);
     await loadCalendarItems();
@@ -361,6 +362,8 @@ function CalendarMain() {
   };
 
   const toggleItemCompleted = async (item: CalendarItem) => {
+    // 勾完成时先关掉弹窗，庆祝才不会被挡住
+    if (!item.completed) setModalVisible(false);
     await updateItem(item.id, { completed: !item.completed });
   };
 

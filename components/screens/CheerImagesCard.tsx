@@ -68,6 +68,12 @@ export default function CheerImagesCard() {
             <Text style={styles.link}>👀 试一下</Text>
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          style={styles.ghost}
+          onPress={() => window.dispatchEvent(new CustomEvent(CELEBRATE_EVENT, { detail: { title: '试一下全部完成' } }))}
+        >
+          <Text style={styles.link}>🎊 预览「全部完成」</Text>
+        </TouchableOpacity>
         {list.length > 0 && (
           <TouchableOpacity
             style={styles.ghost}
