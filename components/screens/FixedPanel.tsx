@@ -9,6 +9,7 @@ import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Vi
 import { FixedEvent, hmToMinutes, minutesToHM, randomId, todayStr } from '@/app/utils/planning';
 import { DATA_CHANGED_EVENT } from '@/components/assistant/breakdown';
 import { commitState, loadPlanState } from '@/components/assistant/plan-store';
+import { confirmAsync } from '@/components/ui/confirm';
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -36,8 +37,7 @@ const HM = /^\d{1,2}[:：]\d{2}$/;
 const norm = (s: string) => s.trim().replace('：', ':');
 
 function confirmDel(msg: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') return window.confirm(msg);
-  return true;
+  return confirmAsync(msg);
 }
 
 export default function FixedPanel() {
@@ -89,12 +89,12 @@ export default function FixedPanel() {
   };
 
   const remove = async (ev: FixedEvent) => {
-    if (!confirmDel(`删除固定日程「${ev.title}」（${when(ev)}）？`)) return;
+    if (!(await confirmDel(`删除固定日程「${ev.title}」（${when(ev)}）？`))) return;
     await save(list => list.filter(x => x.id !== ev.id), `🗑️ 已删除「${ev.title}」`);
   };
 
   const removeGroup = async (evs: FixedEvent[]) => {
-    if (!confirmDel(`删除「${evs[0].title}」的全部 ${evs.length} 个每周时段？`)) return;
+    if (!(await confirmDel(`删除「${evs[0].title}」的全部 ${evs.length} 个每周时段？`))) return;
     const ids = new Set(evs.map(e => e.id));
     await save(list => list.filter(x => !ids.has(x.id)), `🗑️ 已删除「${evs[0].title}」`);
   };

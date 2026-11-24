@@ -27,6 +27,7 @@ import {
   todayStr,
 } from '@/app/utils/planning';
 import { applyActions, commitState, loadPlanState } from '@/components/assistant/plan-store';
+import { confirmAsync } from '@/components/ui/confirm';
 
 type InboxSource = 'canvas' | 'manual' | 'email' | 'syllabus';
 
@@ -227,7 +228,7 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
   };
 
   const handleClear = async () => {
-    if (!window.confirm('确定清空任务池吗？（不影响已进入任务记录/日历的条目）')) return;
+    if (!(await confirmAsync('确定清空任务池吗？（不影响已进入任务记录/日历的条目）'))) return;
     await persist([]);
   };
 

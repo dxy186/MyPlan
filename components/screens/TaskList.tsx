@@ -32,6 +32,7 @@ import {
   setChildrenDone,
   spentByTask,
 } from '@/components/assistant/plan-store';
+import { confirmAsync } from '@/components/ui/confirm';
 
 type View_ = 'today' | 'week' | 'all' | 'done';
 const VIEWS: { key: View_; label: string }[] = [
@@ -54,8 +55,7 @@ const WINDOWS: { key: TaskWindow | null; label: string }[] = [
 const COST_ICON: Record<EnergyCost, string> = { high: '🔴', medium: '🟡', low: '🟢' };
 
 function confirmBox(text: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) return window.confirm(text);
-  return true;
+  return confirmAsync(text);
 }
 
 function dueLabel(due?: string) {
@@ -268,9 +268,9 @@ export default function TaskList() {
       if (g) g.quadrant = q;
     });
 
-  const deleteGoal = (goal: Goal) => {
+  const deleteGoal = async (goal: Goal) => {
     const n = goal.milestones.reduce((k, m) => k + m.tasks.length, 0);
-    if (!confirmBox(`删除目标「${goal.title}」和它的 ${n} 个任务？此操作不能撤销（可以先去设置里导出备份）。`)) return;
+    if (!(await confirmBox(`删除目标「${goal.title}」和它的 ${n} 个任务？此操作不能撤销（可以先去设置里导出备份）。`))) return;
     mutate(s => {
       s.goals = s.goals.filter(g => g.id !== goal.id);
       return `🗑️ 已删除目标「${goal.title}」`;
@@ -575,7 +575,7 @@ export default function TaskList() {
                             const msgText = t.split
                               ? `删除「${t.title}」和它的 ${allKids.length} 个子任务？`
                               : `删除任务「${t.title}」？`;
-                            if (confirmBox(msgText)) runAction({ type: 'delete_task', taskId: t.id });
+                            confirmBox(msgText).then(ok => ok && runAction({ type: 'delete_task', taskId: t.id }));
                           }}
                         />
                       )}

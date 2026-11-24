@@ -54,6 +54,7 @@ import {
   matchMoved,
   reasonSummary,
 } from './followup';
+import { confirmAsync } from '@/components/ui/confirm';
 
 export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
@@ -590,11 +591,8 @@ export default function AssistantScreen() {
                         setSelected(null);
                         openBreakdown(t.id);
                       }}
-                      onDelete={() => {
-                        const ok =
-                          Platform.OS !== 'web' ||
-                          typeof window === 'undefined' ||
-                          window.confirm(`删除任务「${t.title}」？删除后不能恢复（日历和任务列表里也会一起删掉）。`);
+                      onDelete={async () => {
+                        const ok = await confirmAsync(`删除任务「${t.title}」？删除后不能恢复（日历和任务列表里也会一起删掉）。`);
                         if (ok) runQuickAction({ type: 'delete_task', taskId: t.id });
                       }}
                       onSave={p =>

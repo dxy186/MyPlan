@@ -36,6 +36,7 @@ import { allTasks } from '@/components/assistant/plan-store';
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
 import HabitStrip from './HabitStrip';
 import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assistant/nav-bridge';
+import { confirmAsync } from '@/components/ui/confirm';
 
 // ---------- 数据 ----------
 // 日历里的事项就是统一任务列表里带截止日的任务（见 components/data/calendar-bridge.ts），
@@ -200,7 +201,7 @@ function CalendarMain() {
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin)[0];
 
   const deleteFixed = async (ev: FixedEvent) => {
-    if (ev.weekday !== undefined && typeof window !== 'undefined' && !window.confirm(`「${ev.title}」是每周重复的，删除后每周都没有了，确定吗？`)) return;
+    if (ev.weekday !== undefined && !(await confirmAsync(`「${ev.title}」是每周重复的，删除后每周都没有了，确定吗？`))) return;
     const st = await loadPlanState();
     st.fixed = st.fixed.filter(x => x.id !== ev.id);
     await commitState(st);
