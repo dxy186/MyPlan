@@ -85,6 +85,7 @@ function describeTask(task: PlanTask, goalTitle: string, spent: number) {
   return [
     `任务：${task.title}`,
     goalTitle && goalTitle !== '日常安排' ? `所属目标：${goalTitle}` : '',
+    task.intention ? `执行意向：如果「${task.intention.triggerIf}」，那么「${task.intention.actionThen}」` : '',
     task.due ? `截止：${task.due}（周${WEEK[weekdayOf(task.due)]}）` : '截止：没有设置（请在 7 天内安排）',
     `用户原来预估：${task.estimateMin} 分钟${spent ? `，已经做了 ${spent} 分钟` : ''}`,
     task.note ? `备注：${task.note}` : '',
@@ -110,6 +111,17 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
   const ctx = [
     `今天：${today}（周${WEEK[weekdayOf(today)]}），现在 ${minutesToHM(new Date().getHours() * 60 + new Date().getMinutes())}`,
     describeTask(ref.task, ref.goal.title, spent),
+    ...(ref.goal.woop
+      ? [
+          '',
+          '## 用户为这个目标写的 WOOP（拆分时必须用上）',
+          `愿望 Wish：${ref.goal.woop.wish}`,
+          `最好的结果 Outcome：${ref.goal.woop.outcome || '（没写）'}`,
+          `最大的障碍 Obstacle：${ref.goal.woop.obstacle || '（没写）'}`,
+          `应对计划 Plan：${ref.goal.woop.plan || '（没写）'}`,
+          '用法：① 步骤要朝着 Outcome 走，最后一步要让用户能真正用上（比如能在生活里试一次）；② 针对 Obstacle 设计步骤——比如障碍是没时间就把每步切小、能塞进零碎空档，障碍是被别的兴趣拖走就让第一步特别容易开始；③ 把 Plan 的「如果…就…」写进相关步骤的 note 里提醒用户；④ summary 里用一句话说明你是怎么根据他的 WOOP 安排的。',
+        ]
+      : []),
     '',
     `## 可用日期（${today} 到 ${until}）每天大概还空多少分钟`,
     ...free.map(f => `${f.date} 周${WEEK[weekdayOf(f.date)]}：${f.free} 分钟${f.note ? `（${f.note}）` : ''}`),

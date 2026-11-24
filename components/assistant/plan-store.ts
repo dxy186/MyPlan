@@ -543,6 +543,15 @@ export function buildContext(
     });
   if (pending.length === 0) lines.push('（没有）');
 
+  // 用户写过 WOOP 的目标：安排、拆分、给建议时要参考他自己写的结果、障碍和应对计划
+  const woops = state.goals.filter(g => g.woop && !g.completedAt);
+  if (woops.length) {
+    lines.push('', '## 用户写过 WOOP 的目标（安排和建议要针对他写的障碍和应对计划）');
+    woops.slice(0, 10).forEach(g =>
+      lines.push(`${g.title}：想要的结果「${g.woop!.outcome || '-'}」；障碍「${g.woop!.obstacle || '-'}」；应对「${g.woop!.plan || '-'}」`)
+    );
+  }
+
   const over = overrunTasks(state);
   if (over.length) {
     lines.push('', '## 已超出预估、还没完成的任务');
