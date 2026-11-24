@@ -27,6 +27,7 @@ function randomId(): string {
 
 import { openBreakdown } from '@/components/assistant/breakdown';
 import { commitState, loadPlanState } from '@/components/assistant/plan-store';
+import { confirmAsync } from '@/components/ui/confirm';
 
 /** 把一条 WOOP 计划变成目标：愿望 = 目标名，执行意向挂在目标上 */
 async function woopToGoal(p: WoopPlan): Promise<string> {
@@ -117,8 +118,8 @@ export default function WoopScreen() {
     setShowResult(false);
   };
 
-  const deleteWoop = (id: string) => {
-    if (!window.confirm('确定要删除这条 WOOP 计划吗？')) return;
+  const deleteWoop = async (id: string) => {
+    if (!(await confirmAsync('确定要删除这条 WOOP 计划吗？'))) return;
     const updated = plans.filter(p => p.id !== id);
     setPlans(updated);
     AsyncStorage.setItem(WOOP_STORAGE_KEY, JSON.stringify(updated));

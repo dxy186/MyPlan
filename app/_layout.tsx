@@ -13,6 +13,7 @@ import CelebrationHost from '../components/assistant/CelebrationHost';
 import { OPEN_TARGET_EVENT, OpenTarget } from '../components/assistant/followup';
 import { requestOpenToday } from '../components/assistant/nav-bridge';
 import { useTodayStr } from '../hooks/use-today';
+import ConfirmHost from '../components/ui/confirm';
 
 const NAVS = [
   { name: '日历', key: 'calendar', icon: '📅' },
@@ -76,6 +77,7 @@ export default function RootLayout() {
       <ReminderService />
       <BreakdownHost />
       <CelebrationHost />
+      <ConfirmHost />
       <View style={styles.sidebar}>
         <Text style={styles.logo}>MyPlan</Text>
         {NAVS.map((item) => (
