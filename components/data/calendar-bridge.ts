@@ -17,6 +17,8 @@ export type CalendarItem = {
   title: string;
   date: string;
   completed: boolean;
+  /** 截止日（DDL）：只定了截止、没定「那天做」，或标题里写了 DDL / 截止 —— 日历里用红字 */
+  ddl?: boolean;
   parentTaskId?: string;
   textColor?: string;
   bold?: boolean;
@@ -46,6 +48,13 @@ export async function saveCalendarStyles(styles: Record<string, CalendarStyle>) 
   await saveJSON(CAL_STYLE_KEY, styles);
 }
 
+/** DDL：只有截止日、没有「那天做」（notBefore 和截止日不同），或者标题里写了 DDL / 截止 */
+export function isDdl(t: { title: string; due?: string; notBefore?: string }) {
+  if (!t.due) return false;
+  if (/ddl|deadline|截止|due\b/i.test(t.title)) return true;
+  return t.notBefore !== t.due;
+}
+
 function localDay(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -66,6 +75,7 @@ export function tasksToCalendarItems(state: PlanState, styles: Record<string, Ca
       title: r.task.title,
       date: (r.task.due ?? localDay(r.task.doneAt as string)) as string,
       completed: r.task.done,
+      ddl: isDdl(r.task),
       parentTaskId: r.goal.id,
       ...styles[r.task.id],
     }));
