@@ -35,6 +35,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
+import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
 import { takePendingAsk } from './ask-bridge';
@@ -252,6 +253,7 @@ function DayTimeline({
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemTitle, { color: st.color }]}>
                     {isNow ? '▶ ' : ''}
+                    {it.type === 'task' && <PriDot q={it.quadrant} size={13} />}
                     {it.title}
                   </Text>
                   <Text style={styles.itemMeta}>
