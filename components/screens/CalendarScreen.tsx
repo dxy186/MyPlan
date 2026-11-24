@@ -24,7 +24,7 @@ import {
 } from '@/components/data/calendar-bridge';
 import { useTodayStr } from '@/hooks/use-today';
 
-import { FixedEvent, KEYS, Quadrant, addDays, loadJSON, minutesToHM, weekdayOf } from '@/app/utils/planning';
+import { FixedEvent, KEYS, Quadrant, addDays, loadJSON, minutesToHM, saveJSON, weekdayOf } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import { askAi } from '@/components/assistant/ask-bridge';
 import { loadReminderSettings } from '@/components/assistant/followup';
@@ -46,6 +46,7 @@ import { confirmAsync } from '@/components/ui/confirm';
 
 /** 日历配色：DDL 红字，固定日程绿字 */
 const DDL_RED = '#D32F2F';
+const MANUAL_DAYS_KEY = '@myplan_calendar_manual_days';
 const FIXED_GREEN = '#2E7D32';
 const DATE_BGCOLOR_KEY = '@myplan_datebgcolor'; // 仅存储背景色
 
@@ -92,6 +93,11 @@ function CalendarMain() {
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
   // 自动排进各天的任务块（浅灰斜体显示，和自己写的事项区分）
   const [scheduled, setScheduled] = useState<ScheduleItem[]>([]);
+  // 用 ▲▼ 手动调过顺序的日子（其余日子按时间排）
+  const [manualDays, setManualDays] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    loadJSON<string[]>(MANUAL_DAYS_KEY, []).then(d => setManualDays(new Set(d)));
+  }, []);
   // 完整排程（含玩的时间、休息日等块）和每天完成的任务
   const [allBlocks, setAllBlocks] = useState<ScheduleItem[]>([]);
   const [doneByDay, setDoneByDay] = useState<Record<string, string[]>>({});
@@ -353,11 +359,20 @@ function CalendarMain() {
     loadHolidays(year);
   };
 
-  // 排序：未完成在前；同一完成状态内按用户自定义顺序 order，无 order 的旧数据保持原顺序
+  // 排序：未完成在前；默认按排程里的开始时间先后（这天的时段优先，没排上的放后面）；
+  // 用 ▲▼ 手动调过这一天的顺序后（这天每项都有 order），就按手动顺序
+  const timeKey = (it: CalendarItem) => {
+    const blocks = scheduled.filter(i => i.taskId === it.id);
+    const sameDay = blocks.filter(b => b.date === it.date).sort((a, b) => a.startMin - b.startMin)[0];
+    const first = sameDay ?? blocks.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin)[0];
+    return first ? `${first.date === it.date ? '0' : '1'} ${first.date} ${String(first.startMin).padStart(4, '0')}` : '9';
+  };
   const sortItems = (items: CalendarItem[]) => {
+    const manual = items.length > 0 && manualDays.has(items[0].date) && items.every(i => i.order !== undefined);
     return items.slice().sort((a, b) => {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
-      return (a.order ?? 0) - (b.order ?? 0);
+      if (manual) return (a.order ?? 0) - (b.order ?? 0);
+      return timeKey(a).localeCompare(timeKey(b)) || (a.order ?? 0) - (b.order ?? 0);
     });
   };
 
@@ -479,6 +494,11 @@ function CalendarMain() {
       j += dir;
     }
     if (j < 0 || j >= dayItems.length) return;
+    if (!manualDays.has(currentEditDate)) {
+      const nd = new Set(manualDays).add(currentEditDate);
+      setManualDays(nd);
+      saveJSON(MANUAL_DAYS_KEY, [...nd].slice(-200));
+    }
     const reordered = dayItems.slice();
     const tmp = reordered[idx];
     reordered[idx] = reordered[j];

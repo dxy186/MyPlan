@@ -7,8 +7,8 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { KEYS, loadJSON, minutesToHM } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 import { nowAndNext, fmtWhen, SCHEDULE_STALE_EVENT } from '@/components/assistant/followup';
-import { GapTimer, TIMER_CHANGED_EVENT, loadGapTimer, recordGapTimer } from '@/components/assistant/gap';
-import { commitState, loadPlanState, setTaskDone } from '@/components/assistant/plan-store';
+import { GapTimer, TIMER_CHANGED_EVENT, loadGapTimer, recordGapTimer, startTaskTimer } from '@/components/assistant/gap';
+import { allTasks, commitState, loadPlanState, setTaskDone } from '@/components/assistant/plan-store';
 
 export const SCHEDULE_UPDATED_EVENT = 'myplan:schedule-updated';
 
@@ -100,12 +100,33 @@ export default function CalendarTopBar() {
   }
 
   const { current, next } = nowAndNext(schedule);
+  // 点 ▶ 直接给「正在」的任务开始计时（计划时长 = 这段排程剩下的分钟）
+  const startCurrent = async () => {
+    if (!current?.taskId) return;
+    setBusy(true);
+    try {
+      const st = await loadPlanState();
+      const ref = allTasks(st.goals).find(r => r.task.id === current.taskId);
+      if (!ref || ref.task.done) return;
+      const now = new Date();
+      const left = Math.max(5, current.endMin - (now.getHours() * 60 + now.getMinutes()));
+      await startTaskTimer(ref.task, left);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <View style={styles.bar}>
+      {current?.type === 'task' && current.taskId ? (
+        <TouchableOpacity style={styles.play} disabled={busy} onPress={startCurrent} accessibilityLabel="开始计时">
+          <Text style={styles.playText}>▶</Text>
+        </TouchableOpacity>
+      ) : null}
       <Text style={styles.text}>
         {current ? (
           <>
-            ▶ 正在：<Text style={styles.strong}>{current.title}</Text>
+            {current.type === 'task' && current.taskId ? '' : '▶ '}正在：<Text style={styles.strong}>{current.title}</Text>
             <Text style={styles.meta}>　到 {minutesToHM(current.endMin)}</Text>
           </>
         ) : (
@@ -135,6 +156,8 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: '#607D8B' },
   clock: { fontSize: 15, fontWeight: '700', color: '#1976D2', fontVariant: ['tabular-nums'] },
   clockOver: { color: '#D84315' },
+  play: { backgroundColor: '#1976D2', borderRadius: 14, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  playText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   btn: { backgroundColor: '#2E7D32', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 12, marginRight: 8 },
   btnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   btnGhost: { paddingVertical: 5, paddingHorizontal: 8 },
