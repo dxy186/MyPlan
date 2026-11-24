@@ -314,6 +314,7 @@ export default function TaskList() {
   const [pickPriFor, setPickPriFor] = useState<string | null>(null);
   const [newPri, setNewPri] = useState<Quadrant | ''>('');
   const [priFilter, setPriFilter] = useState<Quadrant | 'all' | 'none'>('all');
+  const [showFilters, setShowFilters] = useState(false);
   useEffect(() => {
     loadTags().then(setTags);
   }, []);
@@ -580,7 +581,7 @@ export default function TaskList() {
           ))}
         </View>
         )}
-        <Text style={styles.hint}>想让 AI 帮你拆成几步、估好时间？到「🏠 今天」直接跟它说，或用上面的「🧩 新目标 · 拆解」。</Text>
+        <Text style={styles.hint}>想让 AI 帮你拆成几步、估好时间？点任务右边的 🧩，或到「🏠 今天」直接跟它说。</Text>
       </View>
 
       {/* 筛选 */}
@@ -591,8 +592,27 @@ export default function TaskList() {
           </TouchableOpacity>
         ))}
         <View style={{ width: 12 }} />
+        <TouchableOpacity style={[styles.chip, (showFilters || tagFilter !== 'all' || priFilter !== 'all') && styles.chipBlue]} onPress={() => setShowFilters(!showFilters)}>
+          <Text style={[styles.chipText, (showFilters || tagFilter !== 'all' || priFilter !== 'all') && styles.chipTextOn]}>
+            {showFilters ? '▾ 收起筛选' : '▸ 分类 · 优先级'}
+            {!showFilters && (tagFilter !== 'all' || priFilter !== 'all')
+              ? `：${[tagFilter === 'all' ? '' : tagFilter === 'none' ? '未分类' : tagFilter, priFilter === 'all' ? '' : priFilter === 'none' ? '没设优先级' : priOf(priFilter)?.label]
+                  .filter(Boolean)
+                  .join(' · ')}`
+              : ''}
+          </Text>
+        </TouchableOpacity>
+        {!showFilters && (tagFilter !== 'all' || priFilter !== 'all') && (
+          <TouchableOpacity onPress={() => { setTagFilter('all'); setPriFilter('all'); }}>
+            <Text style={styles.link}>清除</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      {showFilters && (
+      <View style={styles.row}>
+        <Text style={styles.lbl}>分类</Text>
         <TouchableOpacity style={[styles.chip, tagFilter === 'all' && styles.chipBlue]} onPress={() => setTagFilter('all')}>
-          <Text style={[styles.chipText, tagFilter === 'all' && styles.chipTextOn]}>全部分类</Text>
+          <Text style={[styles.chipText, tagFilter === 'all' && styles.chipTextOn]}>全部</Text>
         </TouchableOpacity>
         {tags.map(tg => (
           <TouchableOpacity
@@ -610,6 +630,7 @@ export default function TaskList() {
           <Text style={[styles.chipText, tagForm && styles.chipTextOn]}>＋ 自定义</Text>
         </TouchableOpacity>
       </View>
+      )}
       {tagForm && (
         <View style={styles.card}>
           <View style={styles.row}>
@@ -637,9 +658,11 @@ export default function TaskList() {
         </View>
       )}
 
+      {showFilters && (
       <View style={styles.row}>
+        <Text style={styles.lbl}>优先级</Text>
         <TouchableOpacity style={[styles.chip, priFilter === 'all' && styles.chipBlue]} onPress={() => setPriFilter('all')}>
-          <Text style={[styles.chipText, priFilter === 'all' && styles.chipTextOn]}>全部优先级</Text>
+          <Text style={[styles.chipText, priFilter === 'all' && styles.chipTextOn]}>全部</Text>
         </TouchableOpacity>
         {PRI.map(p => (
           <TouchableOpacity
@@ -654,6 +677,7 @@ export default function TaskList() {
           <Text style={[styles.chipText, priFilter === 'none' && styles.chipTextOn]}>没设优先级</Text>
         </TouchableOpacity>
       </View>
+      )}
 
       <View style={styles.rowBetween}>
         <Text style={styles.count}>共 {totalShown} 个任务</Text>
