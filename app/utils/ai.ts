@@ -13,6 +13,8 @@ export type AiConfig = {
   apiUrl: string;
   apiKey: string;
   model: string;
+  /** 看图用的模型（要支持图片输入）；DeepSeek 是 deepseek-flash */
+  visionModel?: string;
 };
 
 const DEFAULT_CONFIG: AiConfig = {
@@ -22,6 +24,7 @@ const DEFAULT_CONFIG: AiConfig = {
   apiKey: process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY ?? '',
   apiUrl: 'https://api.deepseek.com/v1/chat/completions',
   model: 'deepseek-chat',
+  visionModel: 'deepseek-flash',
 };
 
 export async function getAiConfig(): Promise<AiConfig> {
@@ -35,11 +38,12 @@ export async function saveAiConfig(patch: Partial<AiConfig>): Promise<void> {
   await saveJSON(KEYS.aiConfig, { ...saved, ...patch });
 }
 
-export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] };
 
 export async function callChat(
   messages: ChatMessage[],
-  opts?: { temperature?: number; maxTokens?: number }
+  opts?: { temperature?: number; maxTokens?: number; model?: string }
 ): Promise<string> {
   const cfg = await getAiConfig();
   const response = await fetch(cfg.apiUrl, {
@@ -49,7 +53,7 @@ export async function callChat(
       Authorization: `Bearer ${cfg.apiKey}`,
     },
     body: JSON.stringify({
-      model: cfg.model,
+      model: opts?.model || cfg.model,
       messages,
       temperature: opts?.temperature ?? 0.7,
       max_tokens: opts?.maxTokens ?? 4000,
@@ -66,8 +70,8 @@ export async function callChat(
 }
 
 /** 让模型输出 JSON，并容错地解析（去掉 ```json 包裹） */
-export async function callChatJSON<T>(messages: ChatMessage[]): Promise<T> {
-  const text = await callChat(messages, { temperature: 0.3, maxTokens: 4000 });
+export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: string }): Promise<T> {
+  const text = await callChat(messages, { temperature: 0.3, maxTokens: 4000, model: opts?.model });
   const cleaned = text
     .replace(/^```(?:json)?/i, '')
     .replace(/```$/i, '')
