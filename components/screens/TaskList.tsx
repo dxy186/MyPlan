@@ -34,6 +34,7 @@ import {
   spentByTask,
 } from '@/components/assistant/plan-store';
 import { confirmAsync } from '@/components/ui/confirm';
+import { TAG_PALETTE, TaskTag, loadTags, saveTags, tagColor } from '@/components/data/tags';
 
 type View_ = 'today' | 'week' | 'all' | 'done';
 const VIEWS: { key: View_; label: string }[] = [
@@ -271,7 +272,6 @@ export default function TaskList() {
   const [state, setState] = useState<PlanState | null>(null);
   const [schedule, setSchedule] = useState<ScheduleResult | null>(null);
   const [view, setView] = useState<View_>('all');
-  const [quad, setQuad] = useState<Quadrant | 'all' | 'none'>('all');
   const [editing, setEditing] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // 拆开的父任务默认展开，点 ▾ 收起
@@ -295,6 +295,41 @@ export default function TaskList() {
     setState(s);
     setSchedule(await loadJSON<ScheduleResult | null>(KEYS.schedule, null));
   }, []);
+  // 分类
+  const [tags, setTags] = useState<TaskTag[]>([]);
+  const [tagFilter, setTagFilter] = useState<string>('all'); // all / none / 分类名
+  const [newTag, setNewTag] = useState<string>('');
+  const [tagForm, setTagForm] = useState(false);
+  const [tagName, setTagName] = useState('');
+  const [pickTagFor, setPickTagFor] = useState<string | null>(null);
+  useEffect(() => {
+    loadTags().then(setTags);
+  }, []);
+  const addTagDef = async () => {
+    const name = tagName.trim().slice(0, 12);
+    if (!name) return;
+    if (tags.some(t => t.name === name)) {
+      setMsg(`「${name}」已经有了`);
+      return;
+    }
+    const next = [...tags, { name, color: TAG_PALETTE[tags.length % TAG_PALETTE.length] }];
+    setTags(next);
+    await saveTags(next);
+    setTagName('');
+    setMsg(`🏷 已添加分类「${name}」`);
+  };
+  const removeTagDef = async (name: string) => {
+    if (!(await confirmAsync(`删除分类「${name}」？用了这个分类的任务会变成「未分类」。`))) return;
+    const next = tags.filter(t => t.name !== name);
+    setTags(next);
+    await saveTags(next);
+    if (tagFilter === name) setTagFilter('all');
+    await mutate(st => {
+      for (const g of st.goals) for (const m of g.milestones) for (const t of m.tasks) if (t.tag === name) t.tag = undefined;
+      return `🗑️ 已删除分类「${name}」`;
+    });
+  };
+
   useEffect(() => {
     load();
     if (typeof window === 'undefined' || !window.addEventListener) return;
@@ -370,6 +405,7 @@ export default function TaskList() {
       due,
       notBefore: sd,
       startTime: st,
+      tag: newTag || undefined,
       goal: newGoal === DAILY_GOAL_ID ? undefined : goalTitle,
     }).then(() => {
       setNewTitle('');
@@ -429,17 +465,16 @@ export default function TaskList() {
         return !t.done;
     }
   };
-  const matchQuad = (g: Goal) => quad === 'all' || (quad === 'none' ? !g.quadrant : g.quadrant === quad);
 
   const groups = useMemo(() => {
     if (!state) return [];
     const qOrder = (g: Goal) => (g.quadrant ? QUADRANTS.findIndex(x => x.key === g.quadrant) : 9);
     return state.goals
-      .filter(matchQuad)
       .map(g => {
         const all = g.milestones.flatMap(m => m.tasks);
         const kidsOf = (id: string) => all.filter(t => t.parentId === id);
-        const anyMatch = (t: PlanTask): boolean => matchView(t) || kidsOf(t.id).some(anyMatch);
+        const matchTag = (t: PlanTask) => tagFilter === 'all' || (tagFilter === 'none' ? !t.tag : t.tag === tagFilter);
+        const anyMatch = (t: PlanTask): boolean => (matchView(t) && matchTag(t)) || kidsOf(t.id).some(anyMatch);
         return { goal: g, tasks: all.filter(anyMatch) };
       })
       .filter(x => x.tasks.length > 0 || (view === 'all' && x.goal.milestones.flatMap(m => m.tasks).every(t => !t.done) && x.goal.id !== DAILY_GOAL_ID))
@@ -450,7 +485,7 @@ export default function TaskList() {
           (a.goal.due || '9999').localeCompare(b.goal.due || '9999')
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, view, quad, scheduledOn]);
+  }, [state, view, tagFilter, scheduledOn]);
 
   if (!state) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const activeGoals = state.goals.filter(g => !g.completedAt);
@@ -492,7 +527,23 @@ export default function TaskList() {
         </View>
         <StartPicker date={newStart} time={newTime} onDate={setNewStart} onTime={setNewTime} />
         <View style={styles.row}>
-          <Text style={styles.lbl}>放到</Text>
+          <Text style={styles.lbl}>分类</Text>
+          {tags.map(tg => (
+            <TouchableOpacity
+              key={tg.name}
+              style={[styles.chip, newTag === tg.name && { backgroundColor: tg.color, borderColor: tg.color }]}
+              onPress={() => setNewTag(newTag === tg.name ? '' : tg.name)}
+            >
+              <Text style={[styles.chipText, newTag === tg.name ? styles.chipTextOn : { color: tg.color }]}>{tg.name}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={[styles.chip, !newTag && styles.chipBlue]} onPress={() => setNewTag('')}>
+            <Text style={[styles.chipText, !newTag && styles.chipTextOn]}>不分类</Text>
+          </TouchableOpacity>
+        </View>
+        {activeGoals.some(g => g.id !== DAILY_GOAL_ID) && (
+        <View style={styles.row}>
+          <Text style={styles.lbl}>目标</Text>
           {[{ id: DAILY_GOAL_ID, title: '日常安排' }, ...activeGoals.filter(g => g.id !== DAILY_GOAL_ID).slice(0, 8)].map(g => (
             <TouchableOpacity key={g.id} style={[styles.chip, newGoal === g.id && styles.chipBlue]} onPress={() => setNewGoal(g.id)}>
               <Text style={[styles.chipText, newGoal === g.id && styles.chipTextOn]} numberOfLines={1}>
@@ -501,6 +552,7 @@ export default function TaskList() {
             </TouchableOpacity>
           ))}
         </View>
+        )}
         <Text style={styles.hint}>想让 AI 帮你拆成几步、估好时间？到「🏠 今天」直接跟它说，或用上面的「🧩 新目标 · 拆解」。</Text>
       </View>
 
@@ -512,22 +564,51 @@ export default function TaskList() {
           </TouchableOpacity>
         ))}
         <View style={{ width: 12 }} />
-        <TouchableOpacity style={[styles.chip, quad === 'all' && styles.chipBlue]} onPress={() => setQuad('all')}>
-          <Text style={[styles.chipText, quad === 'all' && styles.chipTextOn]}>全部象限</Text>
+        <TouchableOpacity style={[styles.chip, tagFilter === 'all' && styles.chipBlue]} onPress={() => setTagFilter('all')}>
+          <Text style={[styles.chipText, tagFilter === 'all' && styles.chipTextOn]}>全部分类</Text>
         </TouchableOpacity>
-        {QUADRANTS.map(q => (
+        {tags.map(tg => (
           <TouchableOpacity
-            key={q.key}
-            style={[styles.chip, quad === q.key && { backgroundColor: q.color, borderColor: q.color }]}
-            onPress={() => setQuad(q.key)}
+            key={tg.name}
+            style={[styles.chip, tagFilter === tg.name && { backgroundColor: tg.color, borderColor: tg.color }]}
+            onPress={() => setTagFilter(tg.name)}
           >
-            <Text style={[styles.chipText, quad === q.key && styles.chipTextOn]}>{q.short}</Text>
+            <Text style={[styles.chipText, tagFilter === tg.name ? styles.chipTextOn : { color: tg.color }]}>{tg.name}</Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity style={[styles.chip, quad === 'none' && styles.chipBlue]} onPress={() => setQuad('none')}>
-          <Text style={[styles.chipText, quad === 'none' && styles.chipTextOn]}>未分类</Text>
+        <TouchableOpacity style={[styles.chip, tagFilter === 'none' && styles.chipBlue]} onPress={() => setTagFilter('none')}>
+          <Text style={[styles.chipText, tagFilter === 'none' && styles.chipTextOn]}>未分类</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.chip, tagForm && styles.chipBlue]} onPress={() => setTagForm(!tagForm)}>
+          <Text style={[styles.chipText, tagForm && styles.chipTextOn]}>＋ 自定义</Text>
         </TouchableOpacity>
       </View>
+      {tagForm && (
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <TextInput
+              style={[styles.input, { flex: 1, minWidth: 160 }]}
+              value={tagName}
+              onChangeText={setTagName}
+              placeholder="新分类的名字，比如：社团、考研、兴趣"
+              placeholderTextColor="#9AA4B2"
+              onSubmitEditing={addTagDef}
+            />
+            <TouchableOpacity style={[styles.btn, !tagName.trim() && styles.disabled]} disabled={!tagName.trim()} onPress={addTagDef}>
+              <Text style={styles.btnText}>添加分类</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.lbl}>现有分类</Text>
+            {tags.map(tg => (
+              <TouchableOpacity key={tg.name} style={[styles.chip, { borderColor: tg.color }]} onPress={() => removeTagDef(tg.name)}>
+                <Text style={[styles.chipText, { color: tg.color }]}>{tg.name} ✕</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.hint}>点分类后面的 ✕ 可以删除这个分类（任务本身不会删）。</Text>
+        </View>
+      )}
 
       <View style={styles.rowBetween}>
         <Text style={styles.count}>共 {totalShown} 个任务</Text>
@@ -643,6 +724,14 @@ export default function TaskList() {
                             </View>
                           )}
                         </TouchableOpacity>
+                        {depth === 0 && (
+                          <TouchableOpacity
+                            style={[styles.tagPill, t.tag ? { borderColor: tagColor(tags, t.tag), backgroundColor: tagColor(tags, t.tag) + '1A' } : null]}
+                            onPress={() => setPickTagFor(pickTagFor === t.id ? null : t.id)}
+                          >
+                            <Text style={[styles.tagPillText, t.tag ? { color: tagColor(tags, t.tag) } : null]}>{t.tag ? `🏷 ${t.tag}` : '＋ 分类'}</Text>
+                          </TouchableOpacity>
+                        )}
                         {!t.done && (
                           <TouchableOpacity style={styles.play} onPress={() => openBreakdown(t.id)}>
                             <Text style={styles.playText}>🧩</Text>
@@ -660,6 +749,35 @@ export default function TaskList() {
                           </TouchableOpacity>
                         )}
                       </View>
+                      {pickTagFor === t.id && (
+                        <View style={[styles.row, { paddingLeft: 36, marginTop: 0 }]}>
+                          <Text style={styles.lbl}>换成</Text>
+                          {tags.map(tg => (
+                            <TouchableOpacity
+                              key={tg.name}
+                              style={[styles.chip, t.tag === tg.name && { backgroundColor: tg.color, borderColor: tg.color }]}
+                              onPress={() => {
+                                setPickTagFor(null);
+                                runAction({ type: 'update_task', taskId: t.id, tag: tg.name });
+                              }}
+                            >
+                              <Text style={[styles.chipText, t.tag === tg.name ? styles.chipTextOn : { color: tg.color }]}>{tg.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          <TouchableOpacity
+                            style={[styles.chip, !t.tag && styles.chipBlue]}
+                            onPress={() => {
+                              setPickTagFor(null);
+                              runAction({ type: 'update_task', taskId: t.id, tag: null });
+                            }}
+                          >
+                            <Text style={[styles.chipText, !t.tag && styles.chipTextOn]}>不分类</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setPickTagFor(null); setTagForm(true); }}>
+                            <Text style={styles.link}>＋ 新分类</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                       {editing === t.id && (
                         <TaskEditor
                           task={t}
@@ -688,6 +806,8 @@ export default function TaskList() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  tagPill: { borderWidth: 1, borderColor: '#CFD8DC', borderStyle: 'dashed', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6 },
+  tagPillText: { fontSize: 12, color: '#90A4AE' },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E9F0', padding: 12, marginBottom: 12, maxWidth: 900 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', maxWidth: 900, marginVertical: 6 },

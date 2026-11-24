@@ -328,6 +328,8 @@ export type PlanTask = {
   notBefore?: string;
   /** 想几点开始（分钟，配合 notBefore 那天）；排程会尽量从这个时间开始排 */
   startMin?: number;
+  /** 分类标签（学习 / 工作 / 自定义…） */
+  tag?: string;
   /** 偏好时段：上午 / 下午 / 晚上 */
   window?: TaskWindow;
   /** 补充说明（AI 秘书记录的背景） */

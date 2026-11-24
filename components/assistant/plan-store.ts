@@ -129,6 +129,7 @@ export type AssistantAction =
       /** 那天几点开始 HH:MM（配合 notBefore） */
       startTime?: string;
       window?: TaskWindow;
+      tag?: string;
       goal?: string;
       note?: string;
     }
@@ -142,6 +143,7 @@ export type AssistantAction =
       notBefore?: string | null;
       startTime?: string | null;
       window?: TaskWindow | null;
+      tag?: string | null;
     }
   | { type: 'complete_task'; taskId: string }
   | { type: 'delete_task'; taskId: string }
@@ -247,6 +249,7 @@ export function applyActions(
             due: safeDate(a.due),
             notBefore: safeDate(a.notBefore) ?? (parseHM(a.startTime) !== undefined ? todayStr() : undefined),
             startMin: parseHM(a.startTime),
+            tag: a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined,
             window: WINDOWS.includes(a.window as TaskWindow) ? a.window : undefined,
             note: a.note ? String(a.note) : undefined,
             deps: [],
@@ -272,6 +275,7 @@ export function applyActions(
           if (a.energyCost && COSTS.includes(a.energyCost)) t.energyCost = a.energyCost;
           if (a.due !== undefined) t.due = a.due === null ? undefined : safeDate(a.due) ?? t.due;
           if (a.notBefore !== undefined) t.notBefore = a.notBefore === null ? undefined : safeDate(a.notBefore);
+          if (a.tag !== undefined) t.tag = a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined;
           if (a.startTime !== undefined) {
             t.startMin = a.startTime === null ? undefined : parseHM(a.startTime);
             if (t.startMin !== undefined && !t.notBefore) t.notBefore = todayStr();
@@ -552,7 +556,7 @@ export function buildContext(
     .sort((a, b) => (a.task.due || '9999').localeCompare(b.task.due || '9999'))
     .slice(0, 80)
     .forEach(({ task: t, goal }) => {
-      const extra = [t.notBefore ? `${t.notBefore}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 起` : '', t.window ? `偏好${WINDOW_CN[t.window]}` : '']
+      const extra = [t.tag ? `#${t.tag}` : '', t.notBefore ? `${t.notBefore}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 起` : '', t.window ? `偏好${WINDOW_CN[t.window]}` : '']
         .filter(Boolean)
         .join(' ');
       lines.push(
@@ -618,8 +622,8 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 }
 
 可用操作：
-- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
-- {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null"}  （只写要改的字段）
+- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
+- {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null"}  （只写要改的字段）
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
