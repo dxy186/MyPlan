@@ -1,0 +1,58 @@
+name: 打包桌面版（Windows）
+
+# 在 GitHub 的 Actions 页点「Run workflow」，或推一个 v* 标签，就会在 Windows 上打包
+# 安装版 + 便携版，并发布到 Releases 页，直接下载即可。
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装网页版依赖
+        run: npm ci
+
+      - name: 安装桌面版依赖
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: 打包（安装版 + 便携版）
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist
+
+      - name: 发布到 Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./desktop/package.json').version")
+          TAG="v${VER}"
+          FILES=$(ls desktop/release/*.exe)
+          NOTES="MyPlan 桌面版 ${VER}。推荐下载 MyPlan-Setup-${VER}.exe（安装版）；MyPlan-Portable-${VER}.exe 是免安装的便携版。首次运行如果 Windows 提示「已保护你的电脑」，点「更多信息 → 仍要运行」。"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber
+          else
+            gh release create "$TAG" $FILES --title "MyPlan 桌面版 ${VER}" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi
+
+      - name: 同时保存为构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyPlan-desktop
+          path: desktop/release/*.exe
