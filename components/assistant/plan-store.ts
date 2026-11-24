@@ -151,6 +151,17 @@ export type AssistantAction =
       tag?: string | null;
       quadrant?: Quadrant | null;
     }
+  | {
+      type: 'split_task';
+      /** 拆已有任务时填 id；拆一个新的大任务时不填 id，填 title 等字段 */
+      taskId?: string;
+      title?: string;
+      due?: string;
+      tag?: string;
+      quadrant?: Quadrant;
+      goal?: string;
+      steps: { title: string; estimateMin?: number; energyCost?: EnergyCost; date?: string; note?: string }[];
+    }
   | { type: 'complete_task'; taskId: string }
   | { type: 'delete_task'; taskId: string }
   | {
@@ -179,6 +190,77 @@ function clone<T>(v: T): T {
 }
 
 /** "14:30" / "14：30" → 870；无效返回 undefined */
+export type SplitStep = { title: string; estimateMin: number; energyCost: EnergyCost; date: string; note?: string };
+
+/**
+ * 把一个任务拆成子任务（就地修改 goals）：原任务留着当「父任务」（split=true，不单独排程，
+ * 完成状态跟随子任务），步骤作为子任务紧跟在它下面，按顺序依赖，每一步固定在分到的那天做。
+ * 🧩 拆解和 AI 的 split_task 都用这一个函数，所以格式完全一样。
+ */
+export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep[]): PlanTask[] {
+  const ref = allTasks(goals).find(r => r.task.id === taskId);
+  if (!ref) throw new Error('找不到这个任务');
+  if (steps.length === 0) throw new Error('没有步骤');
+  const original = ref.task;
+  const now = new Date().toISOString();
+  let prevId: string | undefined;
+  const newTasks: PlanTask[] = steps.map(st => {
+    const id = randomId();
+    const t: PlanTask = {
+      id,
+      title: st.title,
+      estimateMin: st.estimateMin,
+      energyCost: st.energyCost,
+      due: st.date,
+      notBefore: st.date,
+      deps: prevId ? [prevId] : [],
+      done: false,
+      note: st.note || undefined,
+      createdAt: now,
+      parentId: original.id,
+    };
+    prevId = id;
+    return t;
+  });
+  newTasks[0].deps = [...original.deps];
+  const lastId = newTasks[newTasks.length - 1].id;
+  for (const r of allTasks(goals)) {
+    if (r.task.id !== original.id) r.task.deps = r.task.deps.map(d => (d === original.id ? lastId : d));
+  }
+  const old = new Set(descendantIds(goals, original.id));
+  const milestone = ref.goal.milestones[ref.milestoneIdx];
+  milestone.tasks = milestone.tasks.filter(t => !old.has(t.id));
+  const idx = milestone.tasks.findIndex(t => t.id === original.id);
+  original.split = true;
+  original.done = false;
+  delete original.doneAt;
+  original.estimateMin = steps.reduce((k, x) => k + x.estimateMin, 0);
+  if (!original.due) original.due = steps[steps.length - 1].date;
+  milestone.tasks.splice(idx + 1, 0, ...newTasks);
+  return newTasks;
+}
+
+/** 清洗 AI 给的步骤：标题必填，时长 5–240，日期不早于今天且后一步不早于前一步 */
+export function cleanSteps(raw: unknown): SplitStep[] {
+  const today = todayStr();
+  const list = Array.isArray(raw) ? raw : [];
+  const out: SplitStep[] = list
+    .filter((x: any) => x && String(x.title || '').trim())
+    .slice(0, 12)
+    .map((x: any) => {
+      const d = safeDate(x.date);
+      return {
+        title: String(x.title).trim(),
+        estimateMin: Math.max(5, Math.min(240, Math.round(Number(x.estimateMin) || 30))),
+        energyCost: (['high', 'medium', 'low'] as EnergyCost[]).includes(x.energyCost) ? x.energyCost : 'medium',
+        date: d && d >= today ? d : today,
+        note: x.note ? String(x.note) : undefined,
+      };
+    });
+  for (let k = 1; k < out.length; k++) if (out[k].date < out[k - 1].date) out[k].date = out[k - 1].date;
+  return out;
+}
+
 const QUADS: Quadrant[] = ['important_urgent', 'not_important_urgent', 'important_not_urgent', 'not_important_not_urgent'];
 const QUAD_CN: Record<Quadrant, string> = {
   important_urgent: '重要紧急',
@@ -301,6 +383,39 @@ export function applyActions(
             action: a,
             ok: true,
             summary: `✏️ 调整「${before}」${before !== t.title ? ` → 「${t.title}」` : ''}（${describeTask(t)}）`,
+          });
+          break;
+        }
+        case 'split_task': {
+          const steps = cleanSteps(a.steps);
+          if (steps.length < 2) throw new Error('至少要拆成 2 步');
+          let id = a.taskId;
+          if (id) {
+            if (!find(id)) throw new Error('找不到这个任务');
+          } else {
+            const title = String(a.title || '').trim();
+            if (!title) throw new Error('缺少任务名');
+            const goal = findGoalForAdd(next.goals, a.goal);
+            id = randomId();
+            goal.milestones[0].tasks.push({
+              id,
+              title,
+              estimateMin: steps.reduce((k, x) => k + x.estimateMin, 0),
+              energyCost: 'medium',
+              due: safeDate(a.due),
+              tag: a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined,
+              quadrant: QUADS.includes(a.quadrant as Quadrant) ? (a.quadrant as Quadrant) : undefined,
+              deps: [],
+              done: false,
+              createdAt: new Date().toISOString(),
+            });
+          }
+          const parent = find(id)!.task;
+          splitTaskInGoals(next.goals, id, steps);
+          changes.push({
+            action: a,
+            ok: true,
+            summary: `🧩 把「${parent.title}」拆成 ${steps.length} 步：${steps.map(x => `${x.date.slice(5)} ${x.title}（${x.estimateMin} 分）`).join('；')}`,
           });
           break;
         }
@@ -640,6 +755,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 可用操作：
 - {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","quadrant":"important_urgent|not_important_urgent|important_not_urgent|not_important_not_urgent（用户说了重要/紧急才填）","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
 - {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null","quadrant":"四象限 或 null"}  （只写要改的字段）
+- {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
@@ -650,7 +766,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 规则：
 1. taskId / eventId 必须从当前数据里原样复制，不能编造。
 2. 有明确时间点的事（上课、开会、聚会、看病）用 add_fixed_event；需要花时间去做、时间可以灵活安排的用 add_task。
-3. 大任务拆成 2-6 个具体步骤，每步 25-120 分钟；预估时要乘上速率系数，宁可多估一点。
+3. 大任务（预估超过 2 小时、或明显要分几次做：写论文、准备考试、做项目…）一律用 split_task 拆成 2-6 个具体步骤，每步 25-120 分钟，按「可用时间」分到不同日子，最后一步不晚于截止日；预估时要乘上速率系数，宁可多估一点。用户新加这种大任务时，不用等他要求，直接用 split_task 拆好（他可以在方案里取消）。小任务照常 add_task。
 4. 用户说某事做完了 → complete_task；说做了一部分 → 用 update_task 把 estimateMin 改成「已投入 + 剩余」的总量。
 5. 用户说「3 点开始写报告」「明天 9 点复习」这种做事的开始时间 → add_task/update_task 填 notBefore（那天）+ startTime；不要当成固定日程。用户说「放到上午/下午/晚上」→ window；「下周再做」「X 号以后」→ notBefore；「推迟」→ 改 due 或 notBefore。
 6. 要动脑的（写作、编程、复习难点）标 high；一般学习/整理标 medium；跑腿、回消息、杂事标 low。
@@ -660,7 +776,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
    - 「周五前交报告」「月底截止」「下周三考试，帮我复习」= 截止日 → 只填 due（考试这类，due 填考试前一天），系统会从现在起尽早安排。
    - 拿不准时按「那天做」处理，并在 reply 里说明你是怎么理解的。
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
-8.1 用户只是提问、不需要改数据时，actions 留空。让你拆解目标时，直接用 add_task 把拆好的步骤加进来（goal 填目标名），在 reply 里讲清拆解思路。
+8.1 用户只是提问、不需要改数据时，actions 留空。让你拆解目标或任务时，用 split_task（已有任务填 taskId，新的填 title），不要用一串 add_task，在 reply 里讲清拆解思路。
 9. 不要重复添加已存在的任务——是否存在只看「当前数据」。
 10. 对话历史里你说过的安排不一定生效了（用户可能没点确认）。一切以「当前数据」为准：用户要做的事如果当前数据里没有，就重新添加，不要说「已经加过了」。
 11. 你给出的操作要等用户点「应用」才生效，所以 reply 里不要说「已经加好了 / 已把…加为」，要说「给你拟好了…」「准备把…加为…」。

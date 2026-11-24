@@ -10,7 +10,7 @@ import { ScheduleResult } from '@/app/utils/scheduler';
 
 import { loadReviews, reasonSummary } from './followup';
 import { buildInsights, categoryFactors, categoryOf, habitsForAi, loadBlockLog } from './habits';
-import { PlanState, allTasks, commitState, descendantIds, loadPlanState, spentByTask } from './plan-store';
+import { PlanState, allTasks, commitState, loadPlanState, spentByTask, splitTaskInGoals } from './plan-store';
 
 export const BREAKDOWN_EVENT = 'myplan:breakdown';
 export const DATA_CHANGED_EVENT = 'myplan:data-changed';
@@ -167,46 +167,7 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
  */
 export async function applyBreakdown(taskId: string, steps: BreakdownStep[]): Promise<PlanState> {
   const state = await loadPlanState();
-  const ref = allTasks(state.goals).find(r => r.task.id === taskId);
-  if (!ref) throw new Error('找不到这个任务');
-  const original = ref.task;
-  const now = new Date().toISOString();
-  let prevId: string | undefined;
-  const newTasks: PlanTask[] = steps.map((s, i) => {
-    const id = randomId();
-    const t: PlanTask = {
-      id,
-      title: s.title,
-      estimateMin: s.estimateMin,
-      energyCost: s.energyCost,
-      due: s.date,
-      notBefore: s.date,
-      deps: prevId ? [prevId] : [],
-      done: false,
-      note: s.note || undefined,
-      createdAt: now,
-    };
-    prevId = id;
-    return t;
-  });
-
-  newTasks.forEach(t => (t.parentId = original.id));
-  newTasks[0].deps = [...original.deps];
-  // 依赖原任务的其他任务，改为依赖最后一步
-  const lastId = newTasks[newTasks.length - 1].id;
-  for (const r of allTasks(state.goals)) {
-    if (r.task.id !== original.id) r.task.deps = r.task.deps.map(d => (d === original.id ? lastId : d));
-  }
-  // 原来已经拆过一次：先去掉旧的子任务
-  const old = new Set(descendantIds(state.goals, original.id));
-  const milestone = ref.goal.milestones[ref.milestoneIdx];
-  milestone.tasks = milestone.tasks.filter(t => !old.has(t.id));
-  const idx = milestone.tasks.findIndex(t => t.id === original.id);
-  original.split = true;
-  original.done = false;
-  delete original.doneAt;
-  if (!original.due) original.due = steps[steps.length - 1].date;
-  milestone.tasks.splice(idx + 1, 0, ...newTasks);
+  splitTaskInGoals(state.goals, taskId, steps);
   await commitState(state);
   notifyDataChanged();
   return state;
