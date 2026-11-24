@@ -15,6 +15,7 @@ import {
   TaskWindow,
   addDays,
   loadJSON,
+  minutesToHM,
   todayStr,
 } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
@@ -105,6 +106,74 @@ function QuadrantTag({ q, onPick }: { q?: Quadrant; onPick: (q: Quadrant | undef
   );
 }
 
+/** 「11-30」「11/30」「11月30日」「2026-11-30」→ 2026-11-30；空 → ''；无效 → null */
+function normDate(v: string): string | null {
+  const t = v.trim();
+  if (!t) return '';
+  let m = t.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = t.match(/^(\d{1,2})[-/.月](\d{1,2})日?$/);
+  if (m) {
+    const today = todayStr();
+    let y = Number(today.slice(0, 4));
+    const d = `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+    if (d < addDays(today, -30)) y += 1; // 已经过去很久的日期 → 明年
+    return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  }
+  return null;
+}
+/** 「9:30」「9：30」「930」「9点半」「14点」→ 9:30；空 → ''；无效 → null */
+function normTime(v: string): string | null {
+  const t = v.trim().replace('：', ':');
+  if (!t) return '';
+  let m = t.match(/^(\d{1,2}):(\d{2})$/) || t.match(/^(\d{1,2})(\d{2})$/);
+  if (!m) {
+    const k = t.match(/^(\d{1,2})点(半|(\d{1,2})分?)?$/);
+    if (k) m = [t, k[1], k[2] === '半' ? '30' : k[3] ?? '00'] as unknown as RegExpMatchArray;
+  }
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
+}
+
+/** 「哪天做 · 几点开始」：快捷选今天 / 明天 / 后天，也可以手填 */
+function StartPicker({ date, time, onDate, onTime }: { date: string; time: string; onDate: (v: string) => void; onTime: (v: string) => void }) {
+  const today = todayStr();
+  const quick = [
+    { label: '今天', v: today },
+    { label: '明天', v: addDays(today, 1) },
+    { label: '后天', v: addDays(today, 2) },
+  ];
+  const dBad = normDate(date) === null;
+  const tBad = normTime(time) === null;
+  return (
+    <View style={styles.row}>
+      <Text style={styles.lbl}>开始</Text>
+      {quick.map(q => (
+        <TouchableOpacity key={q.label} style={[styles.chip, normDate(date) === q.v && styles.chipBlue]} onPress={() => onDate(normDate(date) === q.v ? '' : q.v)}>
+          <Text style={[styles.chipText, normDate(date) === q.v && styles.chipTextOn]}>{q.label}</Text>
+        </TouchableOpacity>
+      ))}
+      <TextInput
+        style={[styles.input, styles.dateInput, dBad && styles.inputBad]}
+        value={date}
+        onChangeText={onDate}
+        placeholder="哪天 11-30，可空"
+        placeholderTextColor="#aaa"
+      />
+      <TextInput
+        style={[styles.input, { width: 92 }, tBad && styles.inputBad]}
+        value={time}
+        onChangeText={onTime}
+        placeholder="几点 14:00"
+        placeholderTextColor="#aaa"
+      />
+    </View>
+  );
+}
+
 function TaskEditor({
   task,
   onSave,
@@ -121,7 +190,10 @@ function TaskEditor({
   const [cost, setCost] = useState<EnergyCost>(task.energyCost);
   const [due, setDue] = useState(task.due ?? '');
   const [win, setWin] = useState<TaskWindow | null>(task.window ?? null);
-  const dueOk = !due || /^\d{4}-\d{2}-\d{2}$/.test(due);
+  const [startDate, setStartDate] = useState(task.notBefore ?? '');
+  const [startTime, setStartTime] = useState(task.startMin !== undefined ? minutesToHM(task.startMin) : '');
+  const dueOk = normDate(due) !== null;
+  const startOk = normDate(startDate) !== null && normTime(startTime) !== null;
   return (
     <View style={styles.editor}>
       <TextInput style={styles.input} value={title} onChangeText={setTitle} />
@@ -150,7 +222,7 @@ function TaskEditor({
           style={[styles.input, styles.dateInput, !dueOk && styles.inputBad]}
           value={due}
           onChangeText={setDue}
-          placeholder="YYYY-MM-DD，可空"
+          placeholder="11-30，可空"
           placeholderTextColor="#aaa"
         />
         <Text style={styles.lbl}>时段</Text>
@@ -160,21 +232,27 @@ function TaskEditor({
           </TouchableOpacity>
         ))}
       </View>
+      <StartPicker date={startDate} time={startTime} onDate={setStartDate} onTime={setStartTime} />
       <View style={styles.row}>
         <TouchableOpacity
-          style={[styles.btn, (!title.trim() || Number(minutes) < 5 || !dueOk) && styles.disabled]}
-          disabled={!title.trim() || Number(minutes) < 5 || !dueOk}
-          onPress={() =>
+          style={[styles.btn, (!title.trim() || Number(minutes) < 5 || !dueOk || !startOk) && styles.disabled]}
+          disabled={!title.trim() || Number(minutes) < 5 || !dueOk || !startOk}
+          onPress={() => {
+            const nd = normDate(due) || null;
+            const sd = normDate(startDate) || null;
+            const st = normTime(startTime) || null;
             onSave({
               type: 'update_task',
               taskId: task.id,
               title: title.trim(),
               estimateMin: Number(minutes),
               energyCost: cost,
-              due: due ? due : null,
+              due: nd,
+              notBefore: sd ?? (st ? todayStr() : null),
+              startTime: st,
               window: win,
-            })
-          }
+            });
+          }}
         >
           <Text style={styles.btnText}>保存并重排</Text>
         </TouchableOpacity>
@@ -204,6 +282,8 @@ export default function TaskList() {
   const [newTitle, setNewTitle] = useState('');
   const [newGoal, setNewGoal] = useState<string>(DAILY_GOAL_ID);
   const [newDue, setNewDue] = useState('');
+  const [newStart, setNewStart] = useState('');
+  const [newTime, setNewTime] = useState('');
   // 新目标
   const [goalForm, setGoalForm] = useState(false);
   const [gTitle, setGTitle] = useState('');
@@ -279,17 +359,23 @@ export default function TaskList() {
 
   const addTask = () => {
     const goalTitle = state?.goals.find(g => g.id === newGoal)?.title;
-    const due = /^\d{4}-\d{2}-\d{2}$/.test(newDue) ? newDue : undefined;
+    const due = normDate(newDue) || undefined;
+    const sd = normDate(newStart) || undefined;
+    const st = normTime(newTime) || undefined;
     runAction({
       type: 'add_task',
       title: newTitle.trim(),
       estimateMin: 30,
       energyCost: 'medium',
       due,
+      notBefore: sd,
+      startTime: st,
       goal: newGoal === DAILY_GOAL_ID ? undefined : goalTitle,
     }).then(() => {
       setNewTitle('');
       setNewDue('');
+      setNewStart('');
+      setNewTime('');
     });
   };
 
@@ -393,13 +479,18 @@ export default function TaskList() {
             style={[styles.input, styles.dateInput]}
             value={newDue}
             onChangeText={setNewDue}
-            placeholder="截止 YYYY-MM-DD"
+            placeholder="截止 11-30，可空"
             placeholderTextColor="#9AA4B2"
           />
-          <TouchableOpacity style={[styles.btn, (!newTitle.trim() || busy) && styles.disabled]} disabled={!newTitle.trim() || busy} onPress={addTask}>
+          <TouchableOpacity
+            style={[styles.btn, (!newTitle.trim() || busy || normDate(newDue) === null || normDate(newStart) === null || normTime(newTime) === null) && styles.disabled]}
+            disabled={!newTitle.trim() || busy || normDate(newDue) === null || normDate(newStart) === null || normTime(newTime) === null}
+            onPress={addTask}
+          >
             <Text style={styles.btnText}>添加</Text>
           </TouchableOpacity>
         </View>
+        <StartPicker date={newStart} time={newTime} onDate={setNewStart} onTime={setNewTime} />
         <View style={styles.row}>
           <Text style={styles.lbl}>放到</Text>
           {[{ id: DAILY_GOAL_ID, title: '日常安排' }, ...activeGoals.filter(g => g.id !== DAILY_GOAL_ID).slice(0, 8)].map(g => (
@@ -533,6 +624,9 @@ export default function TaskList() {
                                 {COST_ICON[t.energyCost]} {t.estimateMin} 分钟
                                 {used ? ` · 已做 ${used} 分钟` : ''}
                                 {t.due ? ` · ${depth > 0 && t.notBefore === t.due ? `${t.due.slice(5)} 做` : dueLabel(t.due)}` : ''}
+                                {!t.done && t.notBefore && t.notBefore >= today && !(depth > 0 && t.notBefore === t.due)
+                                  ? ` · ${t.notBefore === today ? '今天' : t.notBefore.slice(5)}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 开始`
+                                  : ''}
                                 {!t.done && first ? ` · 排在 ${first === today ? '今天' : first.slice(5)}` : ''}
                                 {t.done && t.doneAt ? ` · ${t.doneAt.slice(5, 10)} 完成` : ''}
                               </>

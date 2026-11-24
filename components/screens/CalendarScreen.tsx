@@ -161,7 +161,7 @@ function CalendarMain() {
       setAllBlocks((sch?.items ?? []).filter(i => i.type !== 'buffer'));
       const done: Record<string, string[]> = {};
       for (const r of allTasks(st.goals)) {
-        if (!r.task.done || !r.task.doneAt) continue;
+        if (!r.task.done || !r.task.doneAt || r.task.split) continue;
         const d = new Date(r.task.doneAt);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         (done[key] = done[key] || []).push(r.task.title);
