@@ -15,15 +15,13 @@ import { loadDailyPlans, loadReviews } from '@/components/assistant/followup';
 import { PlanState, allTasks, loadPlanState } from '@/components/assistant/plan-store';
 import { BadgeInput, computeBadges, weekStats } from '@/components/data/badges';
 import EnergyPanel from '@/components/secretary/EnergyPanel';
-import DiaryPanel from './DiaryPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import TimeLogPanel from '@/components/secretary/TimeLogPanel';
 
 const TABS = [
-  { key: 'diary', label: '📔 日记' },
+  { key: 'energy', label: '📖 今日记录' },
   { key: 'overview', label: '📊 概览 · 勋章' },
   { key: 'time', label: '⏱ 时间记录' },
-  { key: 'energy', label: '⚡ 精力' },
   { key: 'done', label: '✅ 已完成' },
   { key: 'habits', label: '🧠 习惯档案' },
 ];
@@ -106,7 +104,7 @@ function DoneList({ state }: { state: PlanState }) {
 }
 
 export default function ReviewScreen() {
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('energy');
   const [state, setState] = useState<PlanState | null>(null);
   const [extra, setExtra] = useState<Pick<BadgeInput, 'reviewDates' | 'planDates'>>({ reviewDates: [], planDates: [] });
 
@@ -129,8 +127,7 @@ export default function ReviewScreen() {
           <Overview state={state} extra={extra} />
         ) : tab === 'time' ? (
           <TimeLogPanel />
-        ) : tab === 'diary' ? (
-          <DiaryPanel />
+
         ) : tab === 'energy' ? (
           <EnergyPanel />
         ) : tab === 'done' ? (
