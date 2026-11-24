@@ -75,13 +75,15 @@ export function quickParse(input: string): QuickParsed {
   let text = input.trim();
   let high = false;
   let breakdown = false;
-  if (/^[?？]/.test(text)) {
-    breakdown = true;
-    text = text.replace(/^[?？]+\s*/, '');
-  }
-  if (/^[!！]/.test(text)) {
-    high = true;
-    text = text.replace(/^[!！]+\s*/, '');
+  // 开头的 ? / ! 顺序随意，可以叠着写（?! 或 !?）
+  for (;;) {
+    if (/^[?？]/.test(text)) {
+      breakdown = true;
+      text = text.replace(/^[?？]+\s*/, '');
+    } else if (/^[!！]/.test(text)) {
+      high = true;
+      text = text.replace(/^[!！]+\s*/, '');
+    } else break;
   }
   // 每周重复：每周二、四 8:00-10:00 高数课
   const weekly = parseWeekly(text);
