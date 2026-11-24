@@ -552,7 +552,8 @@ function CalendarMain() {
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
     // 没做完的、固定日程、自动排的在前；划掉的（做完的）沉到最后，格子放不下时先省略它们
     const itemLines = itemsToday.filter(i => !i.completed).slice(0, 5);
-    const fixedLines = fixedFor(dateStr).slice(0, Math.max(0, 5 - itemLines.length));
+    // 固定日程（每天的课、会）不在格子里显示，点开这一天的弹窗里还能看到
+    const fixedLines: ReturnType<typeof fixedFor> = [];
     const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(
       0,
       Math.max(0, 5 - itemLines.length - fixedLines.length)
