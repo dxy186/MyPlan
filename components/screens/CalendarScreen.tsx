@@ -203,6 +203,13 @@ function CalendarMain() {
       .filter(i => i.taskId === taskId)
       .sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin)[0];
 
+  /** 自动排进来的任务（没有截止日、不在「我的事项」里的）直接勾完成 */
+  const completeTask = async (taskId: string) => {
+    const st = await setTaskDone(taskId, true);
+    await commitState(st);
+    await loadCalendarItems();
+  };
+
   const deleteFixed = async (ev: FixedEvent) => {
     if (ev.weekday !== undefined && !(await confirmAsync(`「${ev.title}」是每周重复的，删除后每周都没有了，确定吗？`))) return;
     const st = await loadPlanState();
@@ -917,11 +924,18 @@ function CalendarMain() {
                           .filter(b => b.date === currentEditDate)
                           .sort((a, b) => a.startMin - b.startMin)
                           .map(b => (
-                            <Text key={b.id} style={styles.timelineLine} numberOfLines={2}>
-                              {minutesToHM(b.startMin)}–{minutesToHM(b.endMin)}　
-                              {b.type === 'task' ? '📝' : b.type === 'fixed' ? '📌' : b.type === 'play' ? '🎮' : b.type === 'rest' ? '🛌' : '·'} {b.title}
-                              {b.note ? <Text style={styles.slotWarn}>　⚠️ {b.note}</Text> : null}
-                            </Text>
+                            <View key={b.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {b.type === 'task' && b.taskId ? (
+                                <TouchableOpacity onPress={() => completeTask(b.taskId as string)} style={{ paddingRight: 6 }}>
+                                  <Text style={{ fontSize: 15 }}>⬜</Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              <Text style={[styles.timelineLine, { flex: 1 }]} numberOfLines={2}>
+                                {minutesToHM(b.startMin)}–{minutesToHM(b.endMin)}　
+                                {b.type === 'task' ? '📝' : b.type === 'fixed' ? '📌' : b.type === 'play' ? '🎮' : b.type === 'rest' ? '🛌' : '·'} {b.title}
+                                {b.note ? <Text style={styles.slotWarn}>　⚠️ {b.note}</Text> : null}
+                              </Text>
+                            </View>
                           ))}
                     </View>
                   )}
@@ -962,6 +976,9 @@ function CalendarMain() {
                         <Text style={styles.autoTitle}>🗓 自动排进这天的任务</Text>
                         {autos.map(a => (
                           <View key={a.taskId} style={styles.autoRow}>
+                            <TouchableOpacity onPress={() => completeTask(a.taskId)} style={{ paddingRight: 8 }}>
+                              <Text style={{ fontSize: 18 }}>⬜</Text>
+                            </TouchableOpacity>
                             <Text style={styles.autoRowText} numberOfLines={1}>
                               {minutesToHM(a.start)}–{minutesToHM(a.end)}　{a.title}
                               <Text style={styles.autoMeta}>　{a.minutes} 分钟</Text>
@@ -993,7 +1010,11 @@ function CalendarMain() {
                   <TouchableOpacity onPress={() => setShowSyntax(!showSyntax)}>
                     <Text style={styles.addHint}>{showSyntax ? '▾ 收起写法说明' : '▸ 快捷写法？（! 高耗能、? AI 拆、几点开始、每周重复…）'}</Text>
                   </TouchableOpacity>
-                  {showSyntax && <QuickSyntaxGuide compact />}
+                  {showSyntax && (
+                    <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
+                      <QuickSyntaxGuide compact />
+                    </ScrollView>
+                  )}
                   {addHint ? <Text style={styles.addHint}>{addHint}</Text> : null}
                   {/* 跟 AI 说这天的安排（会跳到「今天」页处理，方案确认后生效） */}
                   <View style={[styles.addRow, { marginTop: 8 }]}>
