@@ -20,6 +20,7 @@ import { DEFAULT_SETTINGS, ScheduleSettings, loadScheduleSettings, saveScheduleS
 import SubTabBar from '@/components/secretary/SubTabBar';
 import QuickSyntaxGuide from '@/components/data/QuickSyntaxGuide';
 import CheerImagesCard from './CheerImagesCard';
+import DesktopIconCard from './DesktopIconCard';
 
 const TABS = [
   { key: 'schedule', label: '🕘 作息与排程' },
@@ -342,6 +343,7 @@ function ReminderPanel() {
         {msg ? <Text style={styles.ok}>{msg}</Text> : null}
       </View>
       <CheerImagesCard />
+      <DesktopIconCard />
     </ScrollView>
   );
 }
