@@ -36,7 +36,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
-import { addDiary } from '@/components/data/diary';
+import { appendDiaryText } from '@/components/data/diary';
 import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
@@ -447,11 +447,11 @@ export default function AssistantScreen() {
       if (actions.length > 0 && actions.every(a => a.type === 'add_diary')) {
         const ok = applyActions(fresh, actions).changes.filter(c => c.ok);
         for (const a of actions as { type: 'add_diary'; text: string; date?: string }[]) {
-          if (String(a.text || '').trim()) await addDiary(String(a.text), 'ai', /^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr());
+          if (String(a.text || '').trim()) await appendDiaryText(/^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr(), String(a.text));
         }
         saveHistory([
           ...h1,
-          { role: 'assistant', content: `${reply}\n📔 已写进日记（${ok.length} 条），在「复盘 → 📔 日记」里能看到。`, at: new Date().toISOString() },
+          { role: 'assistant', content: `${reply}\n📔 已写进日记（${ok.length} 条），在「复盘 → 今日记录」的日记簿里能看到。`, at: new Date().toISOString() },
         ]);
         setProposal(null);
         return;
@@ -504,7 +504,7 @@ export default function AssistantScreen() {
       const sch = await commitState(preview.next);
       for (const a of preview.chosen) {
         if (a.type === 'add_diary' && String(a.text || '').trim()) {
-          await addDiary(String(a.text), 'ai', /^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr());
+          await appendDiaryText(/^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr(), String(a.text));
         }
       }
       setState(preview.next);

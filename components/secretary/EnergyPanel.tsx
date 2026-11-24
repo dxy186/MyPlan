@@ -36,9 +36,11 @@ import {
   randomId,
   saveJSON,
   slotLabel,
-  suggestFragment,
 } from '@/app/utils/planning';
 import { useCurrentSlot, useTodayStr } from '@/hooks/use-today';
+import { DIARY_CHANGED_EVENT, loadDiaryDays, saveDiaryDays } from '@/components/data/diary';
+
+import DiaryCalendar from './DiaryCalendar';
 
 const WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -112,8 +114,6 @@ export default function EnergyPanel() {
   const [cognitive, setCognitive] = useState(6);
   const [meaning, setMeaning] = useState(6);
   const [note, setNote] = useState('');
-  const [restTimer, setRestTimer] = useState(0); // 秒
-  const restRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // —— 日记 ——
   const [diary, setDiary] = useState<DiaryEntry[]>([]);
@@ -121,21 +121,19 @@ export default function EnergyPanel() {
   const [mood, setMood] = useState('');
   const [weather, setWeather] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
-  const [openDay, setOpenDay] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       setLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
-      setDiary(await loadJSON<DiaryEntry[]>(KEYS.diary, []));
+      setDiary(await loadDiaryDays());
     })();
+    // AI 写进日记 / 每日总结时刷新
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const reload = async () => setDiary(await loadDiaryDays());
+    window.addEventListener(DIARY_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(DIARY_CHANGED_EVENT, reload);
   }, []);
 
-  useEffect(() => {
-    if (restTimer <= 0 && restRef.current) {
-      clearInterval(restRef.current);
-      restRef.current = null;
-    }
-  }, [restTimer]);
 
   const today = useTodayStr();
   const autoSlot = useCurrentSlot();
@@ -199,7 +197,7 @@ export default function EnergyPanel() {
 
   const persistDiary = async (next: DiaryEntry[]) => {
     setDiary(next);
-    await saveJSON(KEYS.diary, next);
+    await saveDiaryDays(next);
   };
 
   const handleSaveDiary = async () => {
@@ -220,18 +218,6 @@ export default function EnergyPanel() {
     await persistDiary(diary.filter(d => d.id !== id));
   };
 
-  const toggleRestTimer = () => {
-    if (restRef.current) {
-      clearInterval(restRef.current);
-      restRef.current = null;
-      setRestTimer(0);
-      return;
-    }
-    setRestTimer(5 * 60);
-    restRef.current = setInterval(() => setRestTimer(t => (t <= 1 ? 0 : t - 1)), 1000);
-  };
-
-  const restText = `${String(Math.floor(restTimer / 60)).padStart(2, '0')}:${String(restTimer % 60).padStart(2, '0')}`;
   const todayEntry = diary.find(d => d.date === today);
 
   return (
@@ -398,113 +384,16 @@ export default function EnergyPanel() {
           <Text style={styles.cardTitle}>📔 日记簿</Text>
           <Text style={styles.diaryCount}>{dayKeys.length} 天</Text>
         </View>
-        <Text style={styles.subText}>点开任意一天，翻看当天的日记与精力值。</Text>
+        <Text style={styles.subText}>双击任意一天，翻看当天的日记、AI 总结和精力值。</Text>
 
-        {dayKeys.length === 0 ? (
-          <Text style={styles.empty}>还没有记录，从今天开始吧。</Text>
-        ) : (
-          dayKeys.map(dk => {
-            const entry = diary.find(d => d.date === dk);
-            const dayLogs = logs.filter(l => l.date === dk).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-            const avg = dayEnergyAvg(dayLogs);
-            const short = fmtShort(dk);
-            const open = openDay === dk;
-            const idx = dayKeys.indexOf(dk);
-            const prevDay = idx < dayKeys.length - 1 ? dayKeys[idx + 1] : null;
-            const nextDay = idx > 0 ? dayKeys[idx - 1] : null;
-            return (
-              <View key={dk} style={styles.dayCard}>
-                <TouchableOpacity style={styles.dayHead} onPress={() => setOpenDay(open ? null : dk)}>
-                  <View style={styles.dayDateBox}>
-                    <Text style={styles.dayDateMd}>{short.md}</Text>
-                    <Text style={styles.dayDateWd}>{short.wd}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.dayTitle} numberOfLines={1}>
-                      {entry?.mood ? `${entry.mood}  ` : ''}{entry?.weather ? `${entry.weather}  ` : ''}
-                      {entry?.content ? entry.content.replace(/\s+/g, ' ') : (entry ? '（无正文）' : '这天没有写日记')}
-                    </Text>
-                    <Text style={styles.dayMeta}>
-                      {dk === today ? '今天 · ' : ''}精力 {avg != null ? `${avg.toFixed(1)}/10` : '—'} · {dayLogs.length} 次打卡
-                    </Text>
-                  </View>
-                  <Text style={styles.dayChevron}>{open ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-
-                {open ? (
-                  <View style={styles.dayBody}>
-                    {/* 当天精力值 */}
-                    <Text style={styles.daySectionTitle}>当天精力</Text>
-                    {dayLogs.length === 0 ? (
-                      <Text style={styles.dayEmpty}>这天没有精力打卡。</Text>
-                    ) : (
-                      dayLogs.map(l => (
-                        <View key={l.id} style={styles.logRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.logTitle}>{slotLabel(l.slot)} · {l.score.toFixed(1)}/10</Text>
-                            <Text style={styles.logDetail}>
-                              意义{l.meaning} 生理{l.physical} 情绪{l.emotional} 认知{l.cognitive} 睡眠{l.sleepQuality}
-                              {l.note ? ` · ${l.note}` : ''}
-                            </Text>
-                          </View>
-                          <TouchableOpacity onPress={() => handleDelete(l.id)}>
-                            <Text style={styles.deleteText}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))
-                    )}
-
-                    {/* 当天日记 */}
-                    <Text style={styles.daySectionTitle}>当天日记</Text>
-                    {entry ? (
-                      <>
-                        {entry.mood || entry.weather ? (
-                          <Text style={styles.diaryTags}>{[entry.mood, entry.weather].filter(Boolean).join('  ')}</Text>
-                        ) : null}
-                        <Text style={styles.diaryBody}>{entry.content || '（只记了心情/天气）'}</Text>
-                        <TouchableOpacity onPress={() => handleDeleteDiary(entry.id)}>
-                          <Text style={styles.diaryDelete}>删除这篇日记</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <Text style={styles.dayEmpty}>这天没有日记。</Text>
-                    )}
-
-                    {/* 逐日翻看 */}
-                    <View style={styles.dayNav}>
-                      <TouchableOpacity
-                        style={[styles.dayNavBtn, !prevDay && styles.dayNavBtnDisabled]}
-                        disabled={!prevDay}
-                        onPress={() => setOpenDay(prevDay)}
-                      >
-                        <Text style={styles.dayNavText}>◀ 前一天</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.dayNavBtn, !nextDay && styles.dayNavBtnDisabled]}
-                        disabled={!nextDay}
-                        onPress={() => setOpenDay(nextDay)}
-                      >
-                        <Text style={styles.dayNavText}>后一天 ▶</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : null}
-              </View>
-            );
-          })
-        )}
-      </View>
-
-      {/* 碎片时间 / 微休息 */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>碎片时间与微休息</Text>
-        <Text style={styles.subText}>
-          基于 45-90 分钟超日节律，每完成一个时间盒就站起来、看窗外、深呼吸。
-        </Text>
-        <Text style={styles.tip}>💡 现在推荐：{suggestFragment(latest?.score ?? 6, true)}</Text>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={toggleRestTimer}>
-          <Text style={styles.secondaryBtnText}>{restRef.current ? `休息中 ${restText}（点此停止）` : '开始 5 分钟微休息'}</Text>
-        </TouchableOpacity>
+        <DiaryCalendar
+          diary={diary}
+          logs={logs}
+          today={today}
+          onSave={async e => persistDiary([...diary.filter(d => d.date !== e.date), e])}
+          onDeleteDiary={handleDeleteDiary}
+          onDeleteLog={handleDelete}
+        />
       </View>
 
       <View style={{ height: 24 }} />

@@ -285,6 +285,10 @@ export type DiaryEntry = {
   content: string; // 正文
   mood?: string; // 心情（emoji 标签）
   weather?: string; // 天气
+  /** AI 每日总结（晚上复盘后自动写入） */
+  summary?: string;
+  /** 每周小结（记在那周的周日） */
+  weekly?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -35,7 +35,7 @@ import { slotOfMinute } from './gap';
 import { AssistantAction, PlanState, applyActions, celebrate, commitState, loadPlanState } from './plan-store';
 import { computeStreak } from '@/components/data/streak';
 import { dailyComment, loadPersona, personaLabel } from './coach';
-import { addDiary } from '@/components/data/diary';
+import { setDiarySummary } from '@/components/data/diary';
 
 const TYPE_ICON: Record<string, string> = { task: '📝', fixed: '📌', play: '🎮', chore: '🧹' };
 
@@ -163,7 +163,7 @@ export function EnergyQuick({ state, onLogged }: { state: PlanState; onLogged: (
           <Text style={styles.energyChipText}>{e.label}</Text>
         </TouchableOpacity>
       ))}
-      <Text style={styles.energyHint}>（用来挑任务和排时段；详细打卡在「复盘 → 精力」）</Text>
+      <Text style={styles.energyHint}>（用来挑任务和排时段；详细打卡在「复盘 → 今日记录」）</Text>
     </View>
   );
 }
@@ -315,7 +315,8 @@ export function EveningCard({
       }).then(async c => {
         const notDone = reviewItems.filter(x => x.status !== 'done');
         // 每日总结自动归档进日记（同一天再复盘会覆盖成最新的）
-        await addDiary(
+        await setDiarySummary(
+          today,
           [
             `完成 ${done}/${reviewItems.length} 项${focusMin ? `，专注 ${focusMin} 分钟` : ''}。`,
             reviewItems.filter(x => x.status === 'done').length ? `做完了：${reviewItems.filter(x => x.status === 'done').map(x => x.title).join('、')}` : '',
@@ -323,10 +324,7 @@ export function EveningCard({
             c ? `${personaLabel(await loadPersona())}：${c}` : '',
           ]
             .filter(Boolean)
-            .join('\n'),
-          'daily',
-          today,
-          `daily:${today}`
+            .join('\n')
         );
         if (!c) return;
         await saveReview({ ...r, note: c });
