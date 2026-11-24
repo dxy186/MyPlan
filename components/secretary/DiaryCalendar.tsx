@@ -3,7 +3,7 @@
  * 双击某一天（手机上点一下）打开当天的日记、AI 每日总结、每周小结和精力记录，正文可以直接改。
  */
 import React, { useMemo, useRef, useState } from 'react';
-import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ganzhiOf } from '@/app/utils/ganzhi';
 import { DiaryEntry, EnergyLog, addDays, randomId, slotLabel } from '@/app/utils/planning';
@@ -37,6 +37,7 @@ export default function DiaryCalendar({
   const [open, setOpen] = useState<string | null>(null);
   const [edit, setEdit] = useState('');
   const lastTap = useRef<{ d: string; t: number }>({ d: '', t: 0 });
+  const winH = Dimensions.get('window').height;
 
   const byDate = useMemo(() => new Map(diary.map(d => [d.date, d])), [diary]);
   const avgByDate = useMemo(() => {
@@ -132,8 +133,9 @@ export default function DiaryCalendar({
       <Text style={styles.hint}>双击日期查看当天的日记和总结。📝 = 写了日记，小圆点 = 精力（绿好 · 黄一般 · 红累）。</Text>
 
       <Modal visible={!!open} transparent animationType="fade" onRequestClose={() => setOpen(null)}>
-        <View style={styles.mask}>
-          <View style={styles.modal}>
+        {/* 点弹窗外面的灰色区域也能关掉 */}
+        <Pressable style={styles.mask} onPress={() => setOpen(null)}>
+          <Pressable style={[styles.modal, { maxHeight: winH * 0.9 }]} onPress={() => {}}>
             <View style={styles.modalHead}>
               <TouchableOpacity onPress={() => open && openDay(addDays(open, -1))}>
                 <Text style={styles.navText}>◀</Text>
@@ -155,12 +157,12 @@ export default function DiaryCalendar({
                 <Text style={styles.close}>✕</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: 520 }}>
+            <ScrollView style={{ maxHeight: winH * 0.9 - 70 }}>
               {entry?.mood || entry?.weather ? <Text style={styles.tags}>{[entry.mood, entry.weather].filter(Boolean).join('　')}</Text> : null}
 
               <Text style={styles.sec}>✍️ 日记</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { minHeight: Math.max(200, winH * 0.42) }]}
                 value={edit}
                 onChangeText={setEdit}
                 multiline
@@ -211,24 +213,22 @@ export default function DiaryCalendar({
               {dayLogs.length === 0 ? (
                 <Text style={styles.muted}>这天没有精力打卡。</Text>
               ) : (
-                dayLogs.map(l => (
-                  <View key={l.id} style={styles.logRow}>
-                    <Text style={{ flex: 1, fontSize: 13, color: '#37474F' }}>
-                      {slotLabel(l.slot)} · {l.score.toFixed(1)}/10
-                      <Text style={styles.muted}>
-                        　意义{l.meaning} 生理{l.physical} 情绪{l.emotional} 认知{l.cognitive} 睡眠{l.sleepQuality}
-                        {l.note ? ` · ${l.note}` : ''}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.logLine}>
+                  {dayLogs.map(l => (
+                    <View key={l.id} style={styles.logChip}>
+                      <Text style={styles.logChipText}>
+                        {slotLabel(l.slot).split(' ')[0]} <Text style={{ fontWeight: '700', color: energyColor(l.score) }}>{l.score.toFixed(1)}</Text>
                       </Text>
-                    </Text>
-                    <TouchableOpacity onPress={() => onDeleteLog(l.id)}>
-                      <Text style={styles.del}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
+                      <TouchableOpacity onPress={() => onDeleteLog(l.id)}>
+                        <Text style={styles.logChipDel}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
               )}
             </ScrollView>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -271,5 +271,9 @@ const styles = StyleSheet.create({
   del: { fontSize: 13, color: '#E53935' },
   aiBox: { fontSize: 14, color: '#4A148C', lineHeight: 22, backgroundColor: '#F6F0FF', borderRadius: 10, padding: 10 },
   muted: { fontSize: 12, color: '#A1887F' },
+  logLine: { alignItems: 'center', gap: 6, paddingBottom: 2 },
+  logChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#EFE4D6', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 8 },
+  logChipText: { fontSize: 12, color: '#6D4C41' },
+  logChipDel: { fontSize: 11, color: '#E57373', marginLeft: 6 },
   logRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#F2EBE2' },
 });
