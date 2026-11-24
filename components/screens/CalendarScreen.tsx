@@ -35,6 +35,7 @@ import { allTasks } from '@/components/assistant/plan-store';
 
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
 import HabitStrip from './HabitStrip';
+import QuickSyntaxGuide from '@/components/data/QuickSyntaxGuide';
 import { PriDot } from '@/components/data/priority';
 import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assistant/nav-bridge';
 import { confirmAsync } from '@/components/ui/confirm';
@@ -98,6 +99,7 @@ function CalendarMain() {
   const [reviewAt, setReviewAt] = useState(21 * 60);
   const [aiText, setAiText] = useState('');
   const [addHint, setAddHint] = useState('');
+  const [showSyntax, setShowSyntax] = useState(false);
   const [dateBgColors, setDateBgColors] = useState<Record<string, string | null>>({}); // null 表示透明
   const [modalVisible, setModalVisible] = useState(false);
   const [bgColorSettingsVisible, setBgColorSettingsVisible] = useState(false); // 背景色调色盘
@@ -988,6 +990,10 @@ function CalendarMain() {
                       <Text style={{ color: '#fff', fontSize: 15 }}>添加</Text>
                     </TouchableOpacity>
                   </View>
+                  <TouchableOpacity onPress={() => setShowSyntax(!showSyntax)}>
+                    <Text style={styles.addHint}>{showSyntax ? '▾ 收起写法说明' : '▸ 快捷写法？（! 高耗能、? AI 拆、几点开始、每周重复…）'}</Text>
+                  </TouchableOpacity>
+                  {showSyntax && <QuickSyntaxGuide compact />}
                   {addHint ? <Text style={styles.addHint}>{addHint}</Text> : null}
                   {/* 跟 AI 说这天的安排（会跳到「今天」页处理，方案确认后生效） */}
                   <View style={[styles.addRow, { marginTop: 8 }]}>
