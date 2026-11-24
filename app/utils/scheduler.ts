@@ -23,6 +23,7 @@ import {
   parseDate,
   predictCurve,
   EnergyLog,
+  quadrantRank,
   weekdayOf,
 } from './planning';
 
@@ -229,6 +230,10 @@ export function generateSchedule(
   const bufferMin = Math.round(requiredMin * opts.bufferRatio);
 
   const ordered = topoSort(pending).sort((a, b) => {
+    // 先按优先级：重要紧急 → 不重要紧急 → 重要不紧急 → 不重要不紧急，优先级高的先挑时间
+    const qa = quadrantRank(a.quadrant);
+    const qb = quadrantRank(b.quadrant);
+    if (qa !== qb) return qa - qb;
     const da = a.due ? diffDays(start, a.due) : 999;
     const db = b.due ? diffDays(start, b.due) : 999;
     if (da !== db) return da - db;
@@ -373,7 +378,9 @@ export function generateSchedule(
           const slot = slotKeyOfMinute(from);
           const score = matchScore(task.energyCost, curve[slot]);
           // 越早越好：轻微惩罚靠后的日期；已经超过截止的要尽快补，惩罚加重
-          const dayPenalty = -diffDays(start, d) * (pass.late ? 3 : 0.25);
+          // 紧急的（重要紧急 / 不重要紧急）尽量排在最近的日子，并且越早越好
+          const urgent = quadrantRank(task.quadrant) <= 1;
+          const dayPenalty = -diffDays(start, d) * (pass.late ? 3 : urgent ? 3 : 0.25) - (urgent ? from / 600 : 0);
           const pinBonus = timeFloor && from === timeFloor ? 100 : timeFloor ? 20 - (from - timeFloor) / 60 : 0;
           if (!best || score + dayPenalty + pinBonus > best.score) {
             best = { day: d, gap: g, from, score: score + dayPenalty + pinBonus };
