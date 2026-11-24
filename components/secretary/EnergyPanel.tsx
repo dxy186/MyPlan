@@ -40,6 +40,8 @@ import {
 import { useCurrentSlot, useTodayStr } from '@/hooks/use-today';
 import { DIARY_CHANGED_EVENT, loadDiaryDays, saveDiaryDays } from '@/components/data/diary';
 
+import { ganzhiOf } from '@/app/utils/ganzhi';
+
 import DiaryCalendar from './DiaryCalendar';
 
 const WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
@@ -332,7 +334,14 @@ export default function EnergyPanel() {
       <View style={[styles.card, styles.diaryCard]}>
         <View style={styles.rowBetween}>
           <Text style={styles.cardTitle}>✍️ 今日日记</Text>
-          <Text style={styles.diaryDate}>{fmtCN(today)}</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.diaryDate}>
+              {fmtCN(today)} <Text style={styles.gzDay}>{ganzhiOf(today).day}</Text>
+            </Text>
+            <Text style={styles.gzYm}>
+              {ganzhiOf(today).year} {ganzhiOf(today).month}
+            </Text>
+          </View>
         </View>
 
         <Text style={styles.diaryFieldLabel}>今天的心情</Text>
@@ -479,6 +488,8 @@ const styles = StyleSheet.create({
   // —— 日记（暖色纸张风）——
   diaryCard: { backgroundColor: '#FFFDF8', borderWidth: 1, borderColor: '#F0E7D8' },
   diaryDate: { fontSize: 12, color: '#B08A5A', fontWeight: '600' },
+  gzDay: { fontSize: 12, color: '#8D6E63', fontWeight: '700' },
+  gzYm: { fontSize: 10, color: '#BCAAA4', marginTop: 1 },
   diaryFieldLabel: { fontSize: 13, color: '#8A7358', fontWeight: '600', marginTop: 12, marginBottom: 6 },
   diaryChip: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 16, backgroundColor: '#F4EDE1' },
   diaryChipActive: { backgroundColor: '#C99A5B' },

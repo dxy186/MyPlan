@@ -5,6 +5,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
+import { ganzhiOf } from '@/app/utils/ganzhi';
 import { DiaryEntry, EnergyLog, addDays, randomId, slotLabel } from '@/app/utils/planning';
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -112,7 +113,14 @@ export default function DiaryCalendar({
               style={[styles.cell, styles.cellDay, d === selected && styles.cellSel, d === today && styles.cellToday]}
               onPress={() => tap(d)}
             >
-              <Text style={[styles.dnum, d > today && styles.future]}>{Number(d.slice(8))}</Text>
+              <Text style={[styles.dnum, d > today && styles.future]}>
+                {Number(d.slice(8))}
+                <Text style={styles.gzDay}> {ganzhiOf(d).day.slice(0, 2)}</Text>
+              </Text>
+              <Text style={styles.gzYm} numberOfLines={1}>
+                {ganzhiOf(d).year}
+                {ganzhiOf(d).month}
+              </Text>
               <Text style={styles.mark} numberOfLines={1}>
                 {e?.mood ? e.mood.split(' ')[0] : has ? '📝' : ''}
               </Text>
@@ -133,6 +141,12 @@ export default function DiaryCalendar({
               <Text style={styles.modalTitle}>
                 {open} 周{open ? WEEK[new Date(open + 'T12:00:00').getDay()] : ''}
                 {open === today ? '（今天）' : ''}
+                {open ? (
+                  <Text style={styles.gzModal}>
+                    {'  '}
+                    {ganzhiOf(open).year} {ganzhiOf(open).month} {ganzhiOf(open).day}
+                  </Text>
+                ) : null}
               </Text>
               <TouchableOpacity onPress={() => open && openDay(addDays(open, 1))}>
                 <Text style={styles.navText}>▶</Text>
@@ -230,11 +244,14 @@ const styles = StyleSheet.create({
   count: { marginLeft: 'auto' as any, fontSize: 12, color: '#A1887F', fontWeight: '600' },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   wd: { width: `${100 / 7}%` as any, textAlign: 'center', fontSize: 12, color: '#A1887F', paddingVertical: 4 },
-  cell: { width: `${100 / 7}%` as any, height: 58, padding: 2 },
+  cell: { width: `${100 / 7}%` as any, height: 72, padding: 2 },
   cellDay: { alignItems: 'center', justifyContent: 'flex-start', borderRadius: 8, paddingTop: 4 },
   cellSel: { backgroundColor: '#FFF3E0' },
   cellToday: { borderWidth: 1.5, borderColor: '#FFB74D' },
   dnum: { fontSize: 14, color: '#4E342E', fontWeight: '600' },
+  gzDay: { fontSize: 11, color: '#8D6E63', fontWeight: '600' },
+  gzYm: { fontSize: 9, color: '#BCAAA4', marginTop: 1 },
+  gzModal: { fontSize: 12, color: '#A1887F', fontWeight: '400' },
   future: { color: '#BCAAA4' },
   mark: { fontSize: 13, height: 18 },
   dot: { width: 7, height: 7, borderRadius: 4, marginTop: 2 },
