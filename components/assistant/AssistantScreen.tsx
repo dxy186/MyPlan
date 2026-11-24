@@ -186,16 +186,16 @@ function TaskEditor({
           disabled={!valid || busy}
           onPress={() => onSave({ energyCost: cost, estimateMin: min, window: win })}
         >
-          <Text style={styles.smallPrimaryText}>保存并重排</Text>
+          <Text style={styles.smallPrimaryText}>保存</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onStart}>
-          <Text style={styles.smallSecondaryText}>▶ 开始计时</Text>
+          <Text style={styles.smallSecondaryText}>▶ 计时</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onBreakdown}>
-          <Text style={styles.smallSecondaryText}>🧩 帮我拆</Text>
+          <Text style={styles.smallSecondaryText}>🧩 拆分</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallSecondary, busy && styles.btnDisabled]} disabled={busy} onPress={onDone}>
-          <Text style={styles.smallSecondaryText}>✅ 标记完成</Text>
+          <Text style={styles.smallSecondaryText}>✅ 完成</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.smallDanger, busy && styles.btnDisabled]} disabled={busy} onPress={onDelete}>
           <Text style={styles.smallDangerText}>🗑️ 删除</Text>

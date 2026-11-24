@@ -258,9 +258,6 @@ function TaskEditor({
         >
           <Text style={styles.btnText}>保存并重排</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.btnGhost} onPress={onClose}>
-          <Text style={styles.btnGhostText}>收起</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.btnGhost} onPress={onDelete}>
           <Text style={styles.delText}>删除任务</Text>
         </TouchableOpacity>
