@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import { callChatJSON, getAiConfig } from '@/app/utils/ai';
+import { AiFormatError, callChatJSON, getAiConfig } from '@/app/utils/ai';
 import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
@@ -455,7 +455,14 @@ export default function AssistantScreen() {
         setProposal(null);
       }
     } catch (e: any) {
-      let msg = e instanceof SyntaxError ? 'AI 返回的格式不对，请换个说法再试一次。' : e?.message || String(e);
+      // 格式实在解析不了：别报错，把 AI 的原话当普通回复显示出来
+      if (e instanceof AiFormatError && e.raw.trim()) {
+        const h2 = [...h1, { role: 'assistant' as const, content: e.raw.trim().slice(0, 3000), at: new Date().toISOString() }];
+        saveHistory(h2);
+        setProposal(null);
+        return;
+      }
+      let msg = e instanceof SyntaxError ? 'AI 这次没回好，请再发一次。' : e?.message || String(e);
       if (pics.length && /image|vision|model/i.test(msg)) {
         msg = `看图失败：${msg}。可以到「⚙️ 设置 → 🤖 AI」检查「看图模型」（DeepSeek 用 deepseek-flash），或者把图里的要求打成文字发给我。`;
         setImages(pics);
