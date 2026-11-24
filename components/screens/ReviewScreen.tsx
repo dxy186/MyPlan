@@ -14,14 +14,16 @@ import HabitsCard from '@/components/assistant/HabitsCard';
 import { loadDailyPlans, loadReviews } from '@/components/assistant/followup';
 import { PlanState, allTasks, loadPlanState } from '@/components/assistant/plan-store';
 import { BadgeInput, computeBadges, weekStats } from '@/components/data/badges';
+import EnergyPanel from '@/components/secretary/EnergyPanel';
 import DiaryPanel from './DiaryPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import TimeLogPanel from '@/components/secretary/TimeLogPanel';
 
 const TABS = [
+  { key: 'diary', label: '📔 日记' },
   { key: 'overview', label: '📊 概览 · 勋章' },
   { key: 'time', label: '⏱ 时间记录' },
-  { key: 'diary', label: '📔 日记' },
+  { key: 'energy', label: '⚡ 精力' },
   { key: 'done', label: '✅ 已完成' },
   { key: 'habits', label: '🧠 习惯档案' },
 ];
@@ -129,6 +131,8 @@ export default function ReviewScreen() {
           <TimeLogPanel />
         ) : tab === 'diary' ? (
           <DiaryPanel />
+        ) : tab === 'energy' ? (
+          <EnergyPanel />
         ) : tab === 'done' ? (
           <DoneList state={state} />
         ) : (
