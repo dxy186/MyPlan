@@ -163,7 +163,7 @@ export function EnergyQuick({ state, onLogged }: { state: PlanState; onLogged: (
           <Text style={styles.energyChipText}>{e.label}</Text>
         </TouchableOpacity>
       ))}
-      <Text style={styles.energyHint}>（用来挑任务和排时段）</Text>
+      <Text style={styles.energyHint}>（用来挑任务和排时段；详细打卡在「复盘 → 精力」）</Text>
     </View>
   );
 }
