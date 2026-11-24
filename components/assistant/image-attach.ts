@@ -71,3 +71,9 @@ export const IMAGE_PROMPT =
   '（用户附上了任务要求的截图。请先仔细读图：找出要做什么、交付物、截止时间、字数 / 页数、评分要点和格式要求。' +
   '然后用 split_task 把它拆成父任务 + 具体子任务（每步写清要做到什么程度），按截止日和可用时间排进日程；' +
   '截图里的截止日期要写进 due。在 reply 里先用 2–4 行复述你从图里读到的关键要求，让用户核对。看不清的地方直说。）';
+
+/** 看图请求的模型参数：DeepSeek 的 deepseek-flash 默认会先长时间「思考」，这里关掉，回得更快也不会把字数耗在思考上 */
+export function visionOpts(visionModel?: string) {
+  const model = (visionModel || 'deepseek-flash').trim();
+  return { model, extra: model.startsWith('deepseek') ? { thinking: { type: 'disabled' } } : undefined };
+}

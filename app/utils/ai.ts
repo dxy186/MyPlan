@@ -43,7 +43,7 @@ export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: stri
 
 export async function callChat(
   messages: ChatMessage[],
-  opts?: { temperature?: number; maxTokens?: number; model?: string }
+  opts?: { temperature?: number; maxTokens?: number; model?: string; extra?: Record<string, unknown> }
 ): Promise<string> {
   const cfg = await getAiConfig();
   const response = await fetch(cfg.apiUrl, {
@@ -57,6 +57,7 @@ export async function callChat(
       messages,
       temperature: opts?.temperature ?? 0.7,
       max_tokens: opts?.maxTokens ?? 4000,
+      ...(opts?.extra ?? {}),
     }),
   });
 
@@ -70,8 +71,8 @@ export async function callChat(
 }
 
 /** 让模型输出 JSON，并容错地解析（去掉 ```json 包裹） */
-export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: string }): Promise<T> {
-  const text = await callChat(messages, { temperature: 0.3, maxTokens: 4000, model: opts?.model });
+export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: string; extra?: Record<string, unknown> }): Promise<T> {
+  const text = await callChat(messages, { temperature: 0.3, maxTokens: 6000, model: opts?.model, extra: opts?.extra });
   const cleaned = text
     .replace(/^```(?:json)?/i, '')
     .replace(/```$/i, '')

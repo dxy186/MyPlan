@@ -36,7 +36,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
-import { AttachedImage, IMAGE_PROMPT, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
+import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
@@ -436,7 +436,7 @@ export default function AssistantScreen() {
               ],
             }
           : { role: 'user', content: text + pendingNote },
-      ], pics.length ? { model: cfg.visionModel || 'deepseek-flash' } : undefined);
+      ], pics.length ? visionOpts(cfg.visionModel) : undefined);
       const fresh2 = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
       // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
       const seen = new Set(carried.map(a => JSON.stringify(a)));
