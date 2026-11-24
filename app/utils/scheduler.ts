@@ -245,6 +245,26 @@ export function generateSchedule(
     return b.estimateMin - a.estimateMin;
   });
 
+  // 排序后再保证依赖在前：一个任务被排之前，先把它依赖的（还没排的）任务排上
+  {
+    const byId = new Map(ordered.map(t => [t.id, t]));
+    const placed = new Set<string>();
+    const out: PlanTask[] = [];
+    const place = (t: PlanTask, stack: Set<string>) => {
+      if (placed.has(t.id) || stack.has(t.id)) return;
+      stack.add(t.id);
+      for (const d of t.deps) {
+        const dep = byId.get(d);
+        if (dep) place(dep, stack);
+      }
+      stack.delete(t.id);
+      placed.add(t.id);
+      out.push(t);
+    };
+    for (const t of ordered.slice()) place(t, new Set());
+    ordered.splice(0, ordered.length, ...out);
+  }
+
   const items: ScheduleItem[] = [];
   const unscheduled: PlanTask[] = [];
 

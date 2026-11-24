@@ -58,8 +58,37 @@ function safeDate(s?: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined;
 }
 
+const PACK_MIGRATION_KEY = '@myplan__migration_pack_subtasks';
+/** 一次性：以前拆出来的子任务每步钉在一天（notBefore = due = 那天），改成只按顺序、截止跟父任务 */
+async function unpinSubtasks() {
+  if (await loadJSON<boolean>(PACK_MIGRATION_KEY, false)) return;
+  const goals = await loadJSON<Goal[]>(KEYS.goals, []);
+  const today = todayStr();
+  let changed = false;
+  for (const g of goals)
+    for (const m of g.milestones) {
+      const parents = new Map(m.tasks.filter(t => t.split).map(t => [t.id, t]));
+      for (const p of parents.values()) {
+        const kids = m.tasks.filter(t => t.parentId === p.id && !t.done);
+        if (!kids.length) continue;
+        const first = kids.map(k => k.notBefore).filter(Boolean).sort()[0];
+        for (const k of kids) {
+          if (k.due && k.due === k.notBefore) {
+            if (!p.due || k.due > p.due) p.due = k.due;
+            k.due = undefined;
+            k.notBefore = first && first > today ? first : undefined;
+            changed = true;
+          }
+        }
+      }
+    }
+  if (changed) await saveJSON(KEYS.goals, goals);
+  await saveJSON(PACK_MIGRATION_KEY, true);
+}
+
 export async function loadPlanState(): Promise<PlanState> {
   await ensureMigrated();
+  await unpinSubtasks();
   const [goals, fixed, energyLogs, timeLogs, memories, settings] = await Promise.all([
     loadJSON<Goal[]>(KEYS.goals, []),
     loadJSON<FixedEvent[]>(KEYS.fixedEvents, []),
@@ -99,12 +128,15 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
   // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下
   const cats = categoryFactors(state.timeLogs, state.goals);
   const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
+  const dueById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.due]));
   const pending = allTasks(state.goals)
     .filter(r => !r.task.done && !r.task.split)
     .map(r => ({
       ...r.task,
       // 优先级：任务自己的 → 父任务的 → 目标的
       quadrant: r.task.quadrant ?? (r.task.parentId ? quadById.get(r.task.parentId) : undefined) ?? r.goal.quadrant,
+      // 子任务没单独设截止时，用父任务的截止
+      due: r.task.due ?? (r.task.parentId ? dueById.get(r.task.parentId) : undefined),
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
       estimateMin: Math.max(
         15,
@@ -204,6 +236,9 @@ export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep
   if (steps.length === 0) throw new Error('没有步骤');
   const original = ref.task;
   const now = new Date().toISOString();
+  // 子任务不再一步钉一天：只按先后顺序、在父任务截止前尽量往前排，时间够的话一天可以做好几步。
+  // 第一步的日期如果在以后，就作为整组最早开始的日子。
+  const startDay = steps[0].date > todayStr() ? steps[0].date : undefined;
   let prevId: string | undefined;
   const newTasks: PlanTask[] = steps.map(st => {
     const id = randomId();
@@ -212,8 +247,7 @@ export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep
       title: st.title,
       estimateMin: st.estimateMin,
       energyCost: st.energyCost,
-      due: st.date,
-      notBefore: st.date,
+      notBefore: startDay,
       deps: prevId ? [prevId] : [],
       done: false,
       note: st.note || undefined,

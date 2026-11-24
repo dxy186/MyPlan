@@ -72,7 +72,8 @@ export function tasksToCalendarItems(state: PlanState, styles: Record<string, Ca
   const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
   return allTasks(state.goals)
     // 被拆开的父任务不在日历里重复显示，它的子任务各自出现在自己那天
-    .filter(r => !r.task.split && (!!r.task.due || (r.task.done && !!r.task.doneAt)))
+    // 拆过的父任务也显示在它的截止日（子任务不单独占日历格子，按排程出现在要做的那天）
+    .filter(r => (r.task.split ? !!r.task.due : !!r.task.due || (r.task.done && !!r.task.doneAt)))
     .map(r => ({
       id: r.task.id,
       title: r.task.title,
