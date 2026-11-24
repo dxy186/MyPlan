@@ -361,10 +361,12 @@ export function generateSchedule(
         // 依赖还没做完的日子不能排
         if (depAfter && diffDays(depAfter.date, d) < 0) continue;
         const depFloor = depAfter && depAfter.date === d ? depAfter.end + opts.breakMin : 0;
+        // 用户指定了「那天几点开始」：那天不早于这个时间，并且优先正好从这个时间开始
+        const timeFloor = task.startMin !== undefined && task.notBefore === d ? task.startMin : 0;
         const curve = curves.get(d) as Record<EnergySlotKey, number>;
         for (const g of gapsFor(d)) {
           // 有偏好时段时，只用空档与该时段重叠的部分
-          const from = Math.max(win ? Math.max(g.start, win.start) : g.start, depFloor);
+          const from = Math.max(win ? Math.max(g.start, win.start) : g.start, depFloor, timeFloor);
           const until = win ? Math.min(g.end, win.end) : g.end;
           const length = until - from;
           if (length < Math.min(box, opts.minFocusMin)) continue;
@@ -372,8 +374,9 @@ export function generateSchedule(
           const score = matchScore(task.energyCost, curve[slot]);
           // 越早越好：轻微惩罚靠后的日期；已经超过截止的要尽快补，惩罚加重
           const dayPenalty = -diffDays(start, d) * (pass.late ? 3 : 0.25);
-          if (!best || score + dayPenalty > best.score) {
-            best = { day: d, gap: g, from, score: score + dayPenalty };
+          const pinBonus = timeFloor && from === timeFloor ? 100 : timeFloor ? 20 - (from - timeFloor) / 60 : 0;
+          if (!best || score + dayPenalty + pinBonus > best.score) {
+            best = { day: d, gap: g, from, score: score + dayPenalty + pinBonus };
           }
         }
       }
