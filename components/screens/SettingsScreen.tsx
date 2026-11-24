@@ -140,6 +140,7 @@ function ScheduleSettingsPanel() {
 function AiSettingsPanel() {
   const [key, setKey] = useState('');
   const [model, setModel] = useState('');
+  const [visionModel, setVisionModel] = useState('');
   const [show, setShow] = useState(false);
   const [msg, setMsg] = useState('');
   const [testing, setTesting] = useState(false);
@@ -147,17 +148,18 @@ function AiSettingsPanel() {
     getAiConfig().then(c => {
       setKey(c.apiKey);
       setModel(c.model);
+      setVisionModel(c.visionModel || 'deepseek-flash');
     });
   }, []);
   const save = async () => {
-    await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat' });
+    await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat', visionModel: visionModel.trim() || 'deepseek-flash' });
     setMsg('✅ 已保存');
   };
   const test = async () => {
     setTesting(true);
     setMsg('');
     try {
-      await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat' });
+      await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat', visionModel: visionModel.trim() || 'deepseek-flash' });
       const r = await callChat([{ role: 'user', content: '只回复两个字：可以' }]);
       setMsg(`✅ 连接成功，AI 回复：${String(r).slice(0, 30)}`);
     } catch (e: any) {
@@ -186,6 +188,9 @@ function AiSettingsPanel() {
         </Field>
         <Field label="模型">
           <TextInput style={[styles.input, { width: 200 }]} value={model} onChangeText={setModel} placeholder="deepseek-chat" placeholderTextColor="#aaa" />
+        </Field>
+        <Field label="看图模型" hint="给 AI 发截图时用，要支持图片输入；DeepSeek 用 deepseek-flash">
+          <TextInput style={[styles.input, { width: 200 }]} value={visionModel} onChangeText={setVisionModel} placeholder="deepseek-flash" placeholderTextColor="#aaa" />
         </Field>
         <View style={styles.row}>
           <TouchableOpacity style={styles.btn} onPress={save}>

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -35,6 +36,7 @@ import {
 } from './plan-store';
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
+import { AttachedImage, IMAGE_PROMPT, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
@@ -280,6 +282,57 @@ export default function AssistantScreen() {
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  // 附带的图片（任务要求截图）
+  const [images, setImages] = useState<AttachedImage[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const addFiles = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    try {
+      const list = await Promise.all(files.slice(0, MAX_IMAGES).map(fileToImage));
+      setImages(prev => [...prev, ...list].slice(0, MAX_IMAGES));
+      setError('');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, []);
+  // 在今天页任何地方 Ctrl+V 粘贴截图，都会附到输入框；也可以把图片拖进来
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const files = imagesFromTransfer(e.clipboardData);
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) {
+        e.preventDefault();
+        setDragOver(true);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!e.relatedTarget) setDragOver(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      const files = imagesFromTransfer(e.dataTransfer);
+      setDragOver(false);
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [addFiles]);
 
   const [missed, setMissed] = useState<MissedBlock[]>([]);
 
@@ -348,11 +401,13 @@ export default function AssistantScreen() {
   }, [proposal, state]);
 
   const send = async (raw?: string) => {
-    const text = (raw ?? input).trim();
+    const pics = raw === undefined ? images : [];
+    const text = (raw ?? input).trim() || (pics.length ? '这是任务要求的截图，帮我拆成子任务并排进日程。' : '');
     if (!text || loading || !state) return;
     setError('');
     setInput('');
-    const userMsg: Msg = { role: 'user', content: text, at: new Date().toISOString() };
+    const userMsg: Msg = { role: 'user', content: pics.length ? `🖼️ [${pics.length} 张图片] ${text}` : text, at: new Date().toISOString() };
+    if (pics.length) setImages([]);
     // 发新消息时，上一个还没点「应用」的方案不丢：把它勾选的操作并进这次的新方案里
     const carried = proposal ? proposal.actions.filter((_, i) => proposal.enabled[i] && proposal.changes[i]?.ok) : [];
     const h1 = [...markPending(history, 'dismissed'), userMsg];
@@ -372,8 +427,16 @@ export default function AssistantScreen() {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: `当前数据：\n${context}` },
         ...historyForAi(h1.slice(-9, -1)),
-        { role: 'user', content: text + pendingNote },
-      ]);
+        pics.length
+          ? {
+              role: 'user',
+              content: [
+                { type: 'text', text: `${text}\n\n${IMAGE_PROMPT}${pendingNote}` },
+                ...pics.map(p => ({ type: 'image_url' as const, image_url: { url: p.dataUrl } })),
+              ],
+            }
+          : { role: 'user', content: text + pendingNote },
+      ], pics.length ? { model: cfg.visionModel || 'deepseek-flash' } : undefined);
       const fresh2 = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
       // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
       const seen = new Set(carried.map(a => JSON.stringify(a)));
@@ -392,7 +455,11 @@ export default function AssistantScreen() {
         setProposal(null);
       }
     } catch (e: any) {
-      const msg = e instanceof SyntaxError ? 'AI 返回的格式不对，请换个说法再试一次。' : e?.message || String(e);
+      let msg = e instanceof SyntaxError ? 'AI 返回的格式不对，请换个说法再试一次。' : e?.message || String(e);
+      if (pics.length && /image|vision|model/i.test(msg)) {
+        msg = `看图失败：${msg}。可以到「⚙️ 设置 → 🤖 AI」检查「看图模型」（DeepSeek 用 deepseek-flash），或者把图里的要求打成文字发给我。`;
+        setImages(pics);
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -612,13 +679,26 @@ export default function AssistantScreen() {
         </View>
       )}
       {/* 输入 */}
-      <View style={styles.inputCard}>
+      <View style={[styles.inputCard, dragOver && { borderColor: '#1976D2', borderStyle: 'dashed', backgroundColor: '#F3F8FF' }]}>
+        {dragOver && <Text style={styles.hint}>松开鼠标，把图片附给 AI</Text>}
+        {images.length > 0 && (
+          <View style={styles.thumbRow}>
+            {images.map(im => (
+              <View key={im.id} style={styles.thumbBox}>
+                <Image source={{ uri: im.dataUrl }} style={styles.thumb} resizeMode="cover" />
+                <TouchableOpacity style={styles.thumbDel} onPress={() => setImages(prev => prev.filter(x => x.id !== im.id))}>
+                  <Text style={styles.thumbDelText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
         <TextInput
           ref={inputRef}
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="比如：这周五前要交实验报告，大概要 4 个小时；周三晚上有聚会"
+          placeholder={images.length ? '说说要怎么安排（可不填，直接发送就会按截图拆分并排程）' : '比如：这周五前要交实验报告，大概要 4 个小时；也可以 Ctrl+V 粘贴任务要求截图'}
           placeholderTextColor="#9AA4B2"
           multiline
           editable={!loading}
@@ -630,10 +710,19 @@ export default function AssistantScreen() {
           }}
         />
         <View style={styles.inputBar}>
-          <Text style={styles.hint}>Enter 发送 · Shift+Enter 换行</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <TouchableOpacity
+              style={styles.attachBtn}
+              disabled={loading || images.length >= MAX_IMAGES}
+              onPress={async () => addFiles(await pickImageFiles())}
+            >
+              <Text style={styles.attachText}>🖼️ 图片</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>Enter 发送 · Shift+Enter 换行 · 可粘贴 / 拖入截图</Text>
+          </View>
           <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || loading) && styles.btnDisabled]}
-            disabled={!input.trim() || loading}
+            style={[styles.sendBtn, ((!input.trim() && !images.length) || loading) && styles.btnDisabled]}
+            disabled={(!input.trim() && !images.length) || loading}
             onPress={() => send()}
           >
             {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.sendText}>发送</Text>}
@@ -803,6 +892,13 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: '#9AA4B2' },
   sendBtn: { backgroundColor: '#1976D2', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 22, minWidth: 72, alignItems: 'center' },
   sendText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  attachBtn: { backgroundColor: '#EEF1F5', borderRadius: 6, paddingVertical: 5, paddingHorizontal: 10, marginRight: 10 },
+  attachText: { fontSize: 13, color: '#37474F', fontWeight: '600' },
+  thumbRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  thumbBox: { width: 76, height: 76, borderRadius: 8, overflow: 'hidden', marginRight: 8, marginBottom: 6, borderWidth: 1, borderColor: '#D6E0EE' },
+  thumb: { width: '100%', height: '100%' },
+  thumbDel: { position: 'absolute', top: 2, right: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  thumbDelText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   btnDisabled: { opacity: 0.45 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 },
   chip: { backgroundColor: '#EEF4FC', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 10, marginRight: 8, marginBottom: 8 },
