@@ -54,6 +54,15 @@ const WINDOWS: { key: TaskWindow | null; label: string }[] = [
   { key: 'afternoon', label: '下午' },
   { key: 'evening', label: '晚上' },
 ];
+/** 任务优先级（四象限），按排程先后排列 */
+const PRI: { key: Quadrant; label: string; color: string }[] = [
+  { key: 'important_urgent', label: '重要紧急', color: '#D84315' },
+  { key: 'not_important_urgent', label: '不重要紧急', color: '#EF6C00' },
+  { key: 'important_not_urgent', label: '重要不紧急', color: '#2E7D32' },
+  { key: 'not_important_not_urgent', label: '不重要不紧急', color: '#78909C' },
+];
+const priOf = (q?: Quadrant) => PRI.find(p => p.key === q);
+
 const COST_ICON: Record<EnergyCost, string> = { high: '🔴', medium: '🟡', low: '🟢' };
 
 function confirmBox(text: string) {
@@ -302,6 +311,9 @@ export default function TaskList() {
   const [tagForm, setTagForm] = useState(false);
   const [tagName, setTagName] = useState('');
   const [pickTagFor, setPickTagFor] = useState<string | null>(null);
+  const [pickPriFor, setPickPriFor] = useState<string | null>(null);
+  const [newPri, setNewPri] = useState<Quadrant | ''>('');
+  const [priFilter, setPriFilter] = useState<Quadrant | 'all' | 'none'>('all');
   useEffect(() => {
     loadTags().then(setTags);
   }, []);
@@ -406,6 +418,7 @@ export default function TaskList() {
       notBefore: sd,
       startTime: st,
       tag: newTag || undefined,
+      quadrant: newPri || undefined,
       goal: newGoal === DAILY_GOAL_ID ? undefined : goalTitle,
     }).then(() => {
       setNewTitle('');
@@ -474,7 +487,9 @@ export default function TaskList() {
         const all = g.milestones.flatMap(m => m.tasks);
         const kidsOf = (id: string) => all.filter(t => t.parentId === id);
         const matchTag = (t: PlanTask) => tagFilter === 'all' || (tagFilter === 'none' ? !t.tag : t.tag === tagFilter);
-        const anyMatch = (t: PlanTask): boolean => (matchView(t) && matchTag(t)) || kidsOf(t.id).some(anyMatch);
+        const effPri = (t: PlanTask): Quadrant | undefined => t.quadrant ?? (t.parentId ? all.find(p => p.id === t.parentId)?.quadrant : undefined) ?? g.quadrant;
+        const matchPri = (t: PlanTask) => priFilter === 'all' || (priFilter === 'none' ? !effPri(t) : effPri(t) === priFilter);
+        const anyMatch = (t: PlanTask): boolean => (matchView(t) && matchTag(t) && matchPri(t)) || kidsOf(t.id).some(anyMatch);
         return { goal: g, tasks: all.filter(anyMatch) };
       })
       .filter(x => x.tasks.length > 0 || (view === 'all' && x.goal.milestones.flatMap(m => m.tasks).every(t => !t.done) && x.goal.id !== DAILY_GOAL_ID))
@@ -485,7 +500,7 @@ export default function TaskList() {
           (a.goal.due || '9999').localeCompare(b.goal.due || '9999')
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, view, tagFilter, scheduledOn]);
+  }, [state, view, tagFilter, priFilter, scheduledOn]);
 
   if (!state) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const activeGoals = state.goals.filter(g => !g.completedAt);
@@ -526,6 +541,18 @@ export default function TaskList() {
           </TouchableOpacity>
         </View>
         <StartPicker date={newStart} time={newTime} onDate={setNewStart} onTime={setNewTime} />
+        <View style={styles.row}>
+          <Text style={styles.lbl}>优先级</Text>
+          {PRI.map(p => (
+            <TouchableOpacity
+              key={p.key}
+              style={[styles.chip, newPri === p.key && { backgroundColor: p.color, borderColor: p.color }]}
+              onPress={() => setNewPri(newPri === p.key ? '' : p.key)}
+            >
+              <Text style={[styles.chipText, newPri === p.key ? styles.chipTextOn : { color: p.color }]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <View style={styles.row}>
           <Text style={styles.lbl}>分类</Text>
           {tags.map(tg => (
@@ -609,6 +636,24 @@ export default function TaskList() {
           <Text style={styles.hint}>点分类后面的 ✕ 可以删除这个分类（任务本身不会删）。</Text>
         </View>
       )}
+
+      <View style={styles.row}>
+        <TouchableOpacity style={[styles.chip, priFilter === 'all' && styles.chipBlue]} onPress={() => setPriFilter('all')}>
+          <Text style={[styles.chipText, priFilter === 'all' && styles.chipTextOn]}>全部优先级</Text>
+        </TouchableOpacity>
+        {PRI.map(p => (
+          <TouchableOpacity
+            key={p.key}
+            style={[styles.chip, priFilter === p.key && { backgroundColor: p.color, borderColor: p.color }]}
+            onPress={() => setPriFilter(p.key)}
+          >
+            <Text style={[styles.chipText, priFilter === p.key ? styles.chipTextOn : { color: p.color }]}>{p.label}</Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={[styles.chip, priFilter === 'none' && styles.chipBlue]} onPress={() => setPriFilter('none')}>
+          <Text style={[styles.chipText, priFilter === 'none' && styles.chipTextOn]}>没设优先级</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.rowBetween}>
         <Text style={styles.count}>共 {totalShown} 个任务</Text>
@@ -726,8 +771,24 @@ export default function TaskList() {
                         </TouchableOpacity>
                         {depth === 0 && (
                           <TouchableOpacity
+                            style={[styles.tagPill, priOf(t.quadrant) ? { borderStyle: 'solid', borderColor: priOf(t.quadrant)!.color, backgroundColor: priOf(t.quadrant)!.color } : null]}
+                            onPress={() => {
+                              setPickTagFor(null);
+                              setPickPriFor(pickPriFor === t.id ? null : t.id);
+                            }}
+                          >
+                            <Text style={[styles.tagPillText, priOf(t.quadrant) ? { color: '#fff', fontWeight: '600' } : null]}>
+                              {priOf(t.quadrant)?.label ?? '＋ 优先级'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {depth === 0 && (
+                          <TouchableOpacity
                             style={[styles.tagPill, t.tag ? { borderColor: tagColor(tags, t.tag), backgroundColor: tagColor(tags, t.tag) + '1A' } : null]}
-                            onPress={() => setPickTagFor(pickTagFor === t.id ? null : t.id)}
+                            onPress={() => {
+                              setPickPriFor(null);
+                              setPickTagFor(pickTagFor === t.id ? null : t.id);
+                            }}
                           >
                             <Text style={[styles.tagPillText, t.tag ? { color: tagColor(tags, t.tag) } : null]}>{t.tag ? `🏷 ${t.tag}` : '＋ 分类'}</Text>
                           </TouchableOpacity>
@@ -749,6 +810,32 @@ export default function TaskList() {
                           </TouchableOpacity>
                         )}
                       </View>
+                      {pickPriFor === t.id && (
+                        <View style={[styles.row, { paddingLeft: 36, marginTop: 0 }]}>
+                          <Text style={styles.lbl}>优先级</Text>
+                          {PRI.map(p => (
+                            <TouchableOpacity
+                              key={p.key}
+                              style={[styles.chip, t.quadrant === p.key && { backgroundColor: p.color, borderColor: p.color }]}
+                              onPress={() => {
+                                setPickPriFor(null);
+                                runAction({ type: 'update_task', taskId: t.id, quadrant: p.key });
+                              }}
+                            >
+                              <Text style={[styles.chipText, t.quadrant === p.key ? styles.chipTextOn : { color: p.color }]}>{p.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          <TouchableOpacity
+                            style={[styles.chip, !t.quadrant && styles.chipBlue]}
+                            onPress={() => {
+                              setPickPriFor(null);
+                              runAction({ type: 'update_task', taskId: t.id, quadrant: null });
+                            }}
+                          >
+                            <Text style={[styles.chipText, !t.quadrant && styles.chipTextOn]}>不设</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                       {pickTagFor === t.id && (
                         <View style={[styles.row, { paddingLeft: 36, marginTop: 0 }]}>
                           <Text style={styles.lbl}>换成</Text>

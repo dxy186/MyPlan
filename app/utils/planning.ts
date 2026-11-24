@@ -330,6 +330,8 @@ export type PlanTask = {
   startMin?: number;
   /** 分类标签（学习 / 工作 / 自定义…） */
   tag?: string;
+  /** 优先级（四象限）；没填时沿用父任务 / 目标的 */
+  quadrant?: Quadrant;
   /** 偏好时段：上午 / 下午 / 晚上 */
   window?: TaskWindow;
   /** 补充说明（AI 秘书记录的背景） */
@@ -378,6 +380,17 @@ export type Goal = {
 };
 
 export type Quadrant = 'important_urgent' | 'important_not_urgent' | 'not_important_urgent' | 'not_important_not_urgent';
+
+/** 排程先后：重要紧急 → 不重要紧急 → 重要不紧急 →（没设）→ 不重要不紧急 */
+export const QUADRANT_RANK: Record<Quadrant, number> = {
+  important_urgent: 0,
+  not_important_urgent: 1,
+  important_not_urgent: 2,
+  not_important_not_urgent: 3,
+};
+export function quadrantRank(q?: Quadrant) {
+  return q ? QUADRANT_RANK[q] : 2.5;
+}
 
 export const QUADRANTS: { key: Quadrant; label: string; short: string; color: string }[] = [
   { key: 'important_urgent', label: '重要且紧急', short: '重要紧急', color: '#D84315' },

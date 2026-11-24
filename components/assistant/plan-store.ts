@@ -13,6 +13,7 @@ import {
   Goal,
   KEYS,
   PlanTask,
+  Quadrant,
   TaskWindow,
   TimeLog,
   addDays,
@@ -97,10 +98,13 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
   const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
   // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下
   const cats = categoryFactors(state.timeLogs, state.goals);
+  const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
   const pending = allTasks(state.goals)
     .filter(r => !r.task.done && !r.task.split)
     .map(r => ({
       ...r.task,
+      // 优先级：任务自己的 → 父任务的 → 目标的
+      quadrant: r.task.quadrant ?? (r.task.parentId ? quadById.get(r.task.parentId) : undefined) ?? r.goal.quadrant,
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
       estimateMin: Math.max(
         15,
@@ -130,6 +134,7 @@ export type AssistantAction =
       startTime?: string;
       window?: TaskWindow;
       tag?: string;
+      quadrant?: Quadrant;
       goal?: string;
       note?: string;
     }
@@ -144,6 +149,7 @@ export type AssistantAction =
       startTime?: string | null;
       window?: TaskWindow | null;
       tag?: string | null;
+      quadrant?: Quadrant | null;
     }
   | { type: 'complete_task'; taskId: string }
   | { type: 'delete_task'; taskId: string }
@@ -173,6 +179,14 @@ function clone<T>(v: T): T {
 }
 
 /** "14:30" / "14：30" → 870；无效返回 undefined */
+const QUADS: Quadrant[] = ['important_urgent', 'not_important_urgent', 'important_not_urgent', 'not_important_not_urgent'];
+const QUAD_CN: Record<Quadrant, string> = {
+  important_urgent: '重要紧急',
+  not_important_urgent: '不重要紧急',
+  important_not_urgent: '重要不紧急',
+  not_important_not_urgent: '不重要不紧急',
+};
+
 export function parseHM(v: unknown): number | undefined {
   const m = String(v ?? '').trim().replace('：', ':').match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return undefined;
@@ -250,6 +264,7 @@ export function applyActions(
             notBefore: safeDate(a.notBefore) ?? (parseHM(a.startTime) !== undefined ? todayStr() : undefined),
             startMin: parseHM(a.startTime),
             tag: a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined,
+            quadrant: QUADS.includes(a.quadrant as Quadrant) ? (a.quadrant as Quadrant) : undefined,
             window: WINDOWS.includes(a.window as TaskWindow) ? a.window : undefined,
             note: a.note ? String(a.note) : undefined,
             deps: [],
@@ -275,6 +290,7 @@ export function applyActions(
           if (a.energyCost && COSTS.includes(a.energyCost)) t.energyCost = a.energyCost;
           if (a.due !== undefined) t.due = a.due === null ? undefined : safeDate(a.due) ?? t.due;
           if (a.notBefore !== undefined) t.notBefore = a.notBefore === null ? undefined : safeDate(a.notBefore);
+          if (a.quadrant !== undefined) t.quadrant = QUADS.includes(a.quadrant as Quadrant) ? (a.quadrant as Quadrant) : undefined;
           if (a.tag !== undefined) t.tag = a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined;
           if (a.startTime !== undefined) {
             t.startMin = a.startTime === null ? undefined : parseHM(a.startTime);
@@ -556,7 +572,7 @@ export function buildContext(
     .sort((a, b) => (a.task.due || '9999').localeCompare(b.task.due || '9999'))
     .slice(0, 80)
     .forEach(({ task: t, goal }) => {
-      const extra = [t.tag ? `#${t.tag}` : '', t.notBefore ? `${t.notBefore}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 起` : '', t.window ? `偏好${WINDOW_CN[t.window]}` : '']
+      const extra = [t.quadrant ? QUAD_CN[t.quadrant] : '', t.tag ? `#${t.tag}` : '', t.notBefore ? `${t.notBefore}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 起` : '', t.window ? `偏好${WINDOW_CN[t.window]}` : '']
         .filter(Boolean)
         .join(' ');
       lines.push(
@@ -622,8 +638,8 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 }
 
 可用操作：
-- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
-- {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null"}  （只写要改的字段）
+- {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","quadrant":"important_urgent|not_important_urgent|important_not_urgent|not_important_not_urgent（用户说了重要/紧急才填）","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
+- {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null","quadrant":"四象限 或 null"}  （只写要改的字段）
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
