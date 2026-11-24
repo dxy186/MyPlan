@@ -15,8 +15,10 @@ import {
   readUndoSnapshot,
   summarize,
   undoLastImport,
+  wipeAllData,
   UndoSnapshot,
 } from './backup';
+import { confirmAsync } from '@/components/ui/confirm';
 
 function fmtTime(iso: string) {
   const d = new Date(iso);
@@ -46,6 +48,7 @@ export default function BackupScreen() {
   const [undo, setUndo] = useState<UndoSnapshot | null>(null);
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [keepAi, setKeepAi] = useState(true);
 
   const refresh = useCallback(async () => {
     setCurrent(summarize(await readAllData()));
@@ -197,6 +200,34 @@ export default function BackupScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* 清空 */}
+      <View style={[styles.card, { borderColor: '#FFCDD2' }]}>
+        <Text style={styles.cardTitle}>🗑️ 清空这台电脑上的全部数据</Text>
+        <Text style={styles.muted}>
+          删掉任务、日历、固定日程、日记、精力、计时、复盘、鼓励图片和各种设置，回到刚安装时的空白状态。不能撤销——需要的话先在上面导出一份备份。
+        </Text>
+        <TouchableOpacity style={styles.checkRow} onPress={() => setKeepAi(!keepAi)}>
+          <View style={[styles.checkbox, keepAi && { backgroundColor: '#1976D2', borderColor: '#1976D2' }]} />
+          <Text style={styles.checkLabel}>保留 AI 设置（API Key），不用重新填</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.secondaryBtn, { backgroundColor: '#FFEBEE' }]}
+          disabled={busy}
+          onPress={async () => {
+            if (!(await confirmAsync('确定清空这台电脑上的全部 MyPlan 数据吗？清空后不能恢复。', { okText: '清空', danger: true }))) return;
+            setBusy(true);
+            try {
+              await wipeAllData(keepAi);
+              if (typeof window !== 'undefined') window.location.reload();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Text style={[styles.secondaryBtnText, { color: '#C62828' }]}>清空全部数据</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }

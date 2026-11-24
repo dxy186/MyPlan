@@ -36,6 +36,18 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist
 
+      - name: 检查图片资源都打进去了（日历翻页箭头等）
+        working-directory: desktop
+        shell: bash
+        run: |
+          node -e "
+            const asar = require('@electron/asar');
+            const files = asar.listPackage('release/win-unpacked/resources/app.asar');
+            const nm = files.filter(f => f.includes('__nm'));
+            console.log('__nm files:', nm.length);
+            if (!nm.some(f => /previous.*\.png$/.test(f))) { console.error('缺少日历箭头图片'); process.exit(1); }
+          "
+
       - name: 发布到 Releases
         shell: bash
         env:
