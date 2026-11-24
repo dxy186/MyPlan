@@ -4,7 +4,7 @@
  * - 文字颜色、加粗、同一天里的顺序这些「样式」单独保存，不影响任务本身
  * 这样日历的样子和用法完全不变，而在日历里加 / 改 / 勾 / 删，任务列表、排程、AI 都会同步。
  */
-import { KEYS, loadJSON, saveJSON } from '@/app/utils/planning';
+import { KEYS, Quadrant, loadJSON, saveJSON } from '@/app/utils/planning';
 import { SMART_PREFIX, type CalendarItem as LegacyItem } from '@/components/data/migrate';
 import { PlanState, allTasks } from '@/components/assistant/plan-store';
 
@@ -19,6 +19,8 @@ export type CalendarItem = {
   completed: boolean;
   /** 截止日（DDL）：只定了截止、没定「那天做」，或标题里写了 DDL / 截止 —— 日历里用红字 */
   ddl?: boolean;
+  /** 优先级（四象限），日历里显示成彩色圆点 */
+  quadrant?: Quadrant;
   parentTaskId?: string;
   textColor?: string;
   bold?: boolean;
@@ -67,6 +69,7 @@ function localDay(iso: string) {
  *   就出现在完成的那一天，并且划掉。
  */
 export function tasksToCalendarItems(state: PlanState, styles: Record<string, CalendarStyle>): CalendarItem[] {
+  const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
   return allTasks(state.goals)
     // 被拆开的父任务不在日历里重复显示，它的子任务各自出现在自己那天
     .filter(r => !r.task.split && (!!r.task.due || (r.task.done && !!r.task.doneAt)))
@@ -76,6 +79,7 @@ export function tasksToCalendarItems(state: PlanState, styles: Record<string, Ca
       date: (r.task.due ?? localDay(r.task.doneAt as string)) as string,
       completed: r.task.done,
       ddl: isDdl(r.task),
+      quadrant: r.task.quadrant ?? (r.task.parentId ? quadById.get(r.task.parentId) : undefined) ?? r.goal.quadrant,
       parentTaskId: r.goal.id,
       ...styles[r.task.id],
     }));

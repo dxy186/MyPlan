@@ -23,6 +23,7 @@ import {
   parseDate,
   predictCurve,
   EnergyLog,
+  Quadrant,
   quadrantRank,
   weekdayOf,
 } from './planning';
@@ -40,6 +41,8 @@ export type ScheduleItem = {
   energyCost?: EnergyCost;
   slotKey?: EnergySlotKey;
   note?: string;
+  /** 任务的优先级（四象限），界面上显示成彩色圆点 */
+  quadrant?: Quadrant;
 };
 
 export type RiskLevel = 'low' | 'medium' | 'high';
@@ -402,6 +405,7 @@ export function generateSchedule(
         taskId: task.id,
         energyCost: task.energyCost,
         slotKey: slot,
+        quadrant: task.quadrant,
         ...(pass.late ? { note: `已超过截止（${task.due}），尽快补上` } : {}),
       });
       // 时间盒之间强制休息

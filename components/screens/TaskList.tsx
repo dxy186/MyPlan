@@ -34,6 +34,7 @@ import {
   spentByTask,
 } from '@/components/assistant/plan-store';
 import { confirmAsync } from '@/components/ui/confirm';
+import { PRI, PriDot, priOf } from '@/components/data/priority';
 import { TAG_PALETTE, TaskTag, loadTags, saveTags, tagColor } from '@/components/data/tags';
 
 type View_ = 'today' | 'week' | 'all' | 'done';
@@ -54,15 +55,6 @@ const WINDOWS: { key: TaskWindow | null; label: string }[] = [
   { key: 'afternoon', label: '下午' },
   { key: 'evening', label: '晚上' },
 ];
-/** 任务优先级（四象限），按排程先后排列 */
-const PRI: { key: Quadrant; label: string; color: string }[] = [
-  { key: 'important_urgent', label: '重要紧急', color: '#D84315' },
-  { key: 'not_important_urgent', label: '不重要紧急', color: '#EF6C00' },
-  { key: 'important_not_urgent', label: '重要不紧急', color: '#2E7D32' },
-  { key: 'not_important_not_urgent', label: '不重要不紧急', color: '#78909C' },
-];
-const priOf = (q?: Quadrant) => PRI.find(p => p.key === q);
-
 const COST_ICON: Record<EnergyCost, string> = { high: '🔴', medium: '🟡', low: '🟢' };
 
 function confirmBox(text: string) {
@@ -741,6 +733,9 @@ export default function TaskList() {
                 const shown = new Set(tasks.map(t => t.id));
                 const kidsOf = (id: string) => tasks.filter(t => t.parentId === id);
                 const tops = tasks.filter(t => !t.parentId || !shown.has(t.parentId));
+                const allInGoal = goal.milestones.flatMap(m => m.tasks);
+                const effQuad = (t: PlanTask) =>
+                  t.quadrant ?? (t.parentId ? allInGoal.find(p => p.id === t.parentId)?.quadrant : undefined) ?? goal.quadrant;
                 const renderTask = (t: PlanTask, depth: number): React.ReactNode => {
                   const used = spent.get(t.id) ?? 0;
                   const first = scheduledOn.get(t.id);
@@ -762,7 +757,10 @@ export default function TaskList() {
                           <Text style={styles.check}>{t.done ? '✅' : '⬜'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditing(editing === t.id ? null : t.id)}>
-                          <Text style={[styles.taskTitle, t.split && styles.parentTitle, t.done && styles.taskDone]}>{t.title}</Text>
+                          <Text style={[styles.taskTitle, t.split && styles.parentTitle, t.done && styles.taskDone]}>
+                            {!t.done && <PriDot q={effQuad(t)} size={13} />}
+                            {t.title}
+                          </Text>
                           <Text style={styles.taskMeta}>
                             {t.split ? (
                               <>

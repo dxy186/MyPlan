@@ -24,7 +24,7 @@ import {
 } from '@/components/data/calendar-bridge';
 import { useTodayStr } from '@/hooks/use-today';
 
-import { FixedEvent, KEYS, addDays, loadJSON, minutesToHM, weekdayOf } from '@/app/utils/planning';
+import { FixedEvent, KEYS, Quadrant, addDays, loadJSON, minutesToHM, weekdayOf } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import { askAi } from '@/components/assistant/ask-bridge';
 import { loadReminderSettings } from '@/components/assistant/followup';
@@ -35,6 +35,7 @@ import { allTasks } from '@/components/assistant/plan-store';
 
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
 import HabitStrip from './HabitStrip';
+import { PriDot } from '@/components/data/priority';
 import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assistant/nav-bridge';
 import { confirmAsync } from '@/components/ui/confirm';
 
@@ -176,14 +177,14 @@ function CalendarMain() {
 
   /** 某天自动排进来的任务（同一任务一天里的几段合并成一行），排除已经作为事项显示在这天的 */
   const scheduledFor = (dateStr: string, shownIds: Set<string>) => {
-    const byTask = new Map<string, { taskId: string; title: string; start: number; end: number; minutes: number }>();
+    const byTask = new Map<string, { taskId: string; title: string; start: number; end: number; minutes: number; quadrant?: Quadrant }>();
     for (const i of scheduled) {
       if (i.date !== dateStr || !i.taskId || shownIds.has(i.taskId)) continue;
       const prev = byTask.get(i.taskId);
       if (prev) {
         prev.minutes += i.endMin - i.startMin;
         prev.end = Math.max(prev.end, i.endMin);
-      } else byTask.set(i.taskId, { taskId: i.taskId, title: i.title, start: i.startMin, end: i.endMin, minutes: i.endMin - i.startMin });
+      } else byTask.set(i.taskId, { taskId: i.taskId, title: i.title, start: i.startMin, end: i.endMin, minutes: i.endMin - i.startMin, quadrant: i.quadrant });
     }
     return [...byTask.values()].sort((a, b) => a.start - b.start);
   };
@@ -593,6 +594,7 @@ function CalendarMain() {
                 }
               ]}
             >
+              <PriDot q={item.quadrant} size={8} />
               {item.title}
             </Text>
           ))}
@@ -613,6 +615,7 @@ function CalendarMain() {
               ellipsizeMode="tail"
               style={[styles.itemText, styles.autoItemText, { opacity: isCurrentMonth ? 1 : 0.5 }]}
             >
+              <PriDot q={a.quadrant} size={8} />
               {a.title}
             </Text>
           ))}
@@ -807,6 +810,7 @@ function CalendarMain() {
                             onPress={() => handleItemTitlePress(item)}
                           >
                             <Text style={[styles.noteItemText, { color: item.ddl ? DDL_RED : item.textColor || '#222', fontWeight: item.bold ? 'bold' : '400' }, item.completed && { textDecorationLine: 'line-through', color: '#b0b0b0' }]}>
+                              {!item.completed && <PriDot q={item.quadrant} size={11} />}
                               {item.title}
                             </Text>
                             <Text style={styles.noteItemDate}>
