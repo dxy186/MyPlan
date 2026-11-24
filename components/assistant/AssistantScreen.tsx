@@ -846,7 +846,7 @@ const styles = StyleSheet.create({
   changeText: { flex: 1, fontSize: 14, color: '#333', lineHeight: 20 },
   changeSkipped: { color: '#B07800' },
   warn: { fontSize: 13, color: '#BF360C', marginVertical: 6 },
-  btnRow: { flexDirection: 'row', alignItems: 'center' },
+  btnRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   primaryBtn: { backgroundColor: '#1976D2', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18, marginRight: 10 },
   primaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   secondaryBtn: { backgroundColor: '#EEF1F5', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
