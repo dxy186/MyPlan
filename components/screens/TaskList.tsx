@@ -538,6 +538,11 @@ export default function TaskList() {
                               </>
                             )}
                           </Text>
+                          {!t.split && !t.done && depth === 0 && t.title.startsWith('迈出第一步') && (
+                            <TouchableOpacity onPress={() => openBreakdown(t.id)}>
+                              <Text style={{ fontSize: 12, color: '#1976D2', marginTop: 3 }}>👉 还没拆成具体步骤，点这里让 AI 拆成子任务</Text>
+                            </TouchableOpacity>
+                          )}
                           {t.split && allKids.length > 0 && (
                             <View style={styles.miniBar}>
                               <View style={[styles.miniBarFill, { width: `${Math.round((kidsDone / allKids.length) * 100)}%` as unknown as number }]} />

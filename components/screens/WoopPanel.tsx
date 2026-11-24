@@ -25,6 +25,7 @@ function randomId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString().slice(-5);
 }
 
+import { openBreakdown } from '@/components/assistant/breakdown';
 import { commitState, loadPlanState } from '@/components/assistant/plan-store';
 
 /** 把一条 WOOP 计划变成目标：愿望 = 目标名，执行意向挂在目标上 */
@@ -32,6 +33,7 @@ async function woopToGoal(p: WoopPlan): Promise<string> {
   const s = await loadPlanState();
   if (s.goals.some(g => g.woop && g.title === p.wish)) return `「${p.wish}」已经在任务里了`;
   const now = new Date().toISOString();
+  const firstId = randomId();
   s.goals.unshift({
     id: randomId(),
     title: p.wish,
@@ -50,7 +52,7 @@ async function woopToGoal(p: WoopPlan): Promise<string> {
         title: '第一步',
         tasks: [
           {
-            id: randomId(),
+            id: firstId,
             title: `迈出第一步：${p.wish}`,
             estimateMin: 30,
             energyCost: 'medium',
@@ -67,7 +69,9 @@ async function woopToGoal(p: WoopPlan): Promise<string> {
     source: 'woop',
   });
   await commitState(s);
-  return `🎯「${p.wish}」已加入任务（在「全部任务」里给它补充具体步骤，或让 AI 帮你拆解）`;
+  // 马上让 AI 把「第一步」拆成具体的子任务（弹出拆解窗口，确认后子任务会列在任务下面）
+  setTimeout(() => openBreakdown(firstId), 300);
+  return `🎯「${p.wish}」已加入任务，AI 正在帮你拆成具体的小步骤…`;
 }
 
 export default function WoopScreen() {
