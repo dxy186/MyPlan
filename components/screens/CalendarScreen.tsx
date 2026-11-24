@@ -87,6 +87,8 @@ function isLastInStatus(list: CalendarItem[], index: number): boolean {
 // ---------- 主组件 ----------
 function CalendarMain() {
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
+  // 任务 id → 截止日（给自动排进来的任务显示「x 号截止」）
+  const [scheduledDue, setScheduledDue] = useState<Map<string, string>>(new Map());
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
   // 自动排进各天的任务块（浅灰斜体显示，和自己写的事项区分）
   const [scheduled, setScheduled] = useState<ScheduleItem[]>([]);
@@ -159,6 +161,7 @@ function CalendarMain() {
       const styles = await loadCalendarStyles(st);
       setItemStyles(styles);
       setCalendarItems(tasksToCalendarItems(st, styles));
+      setScheduledDue(new Map(allTasks(st.goals).filter(r => !!r.task.due).map(r => [r.task.id, r.task.due as string])));
       const sch = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
       setScheduled((sch?.items ?? []).filter(i => i.type === 'task' && !!i.taskId));
       setAllBlocks((sch?.items ?? []).filter(i => i.type !== 'buffer'));
@@ -690,6 +693,17 @@ function CalendarMain() {
   ] : [];
 
   const itemsForSelectedDay = sortItems(calendarItems.filter(item => item.date === currentEditDate));
+  // 「这天的事项」= 这天的事项（截止 / 指定在这天）+ 自动排进这天的任务，合成一个列表：
+  // 没做完的事项 → 自动排进来的（按时间）→ 做完的事项
+  const autosForSelectedDay = currentEditDate ? scheduledFor(currentEditDate, new Set(itemsForSelectedDay.map(i => i.id))) : [];
+  type DayEntry =
+    | { kind: 'item'; item: CalendarItem; idx: number }
+    | { kind: 'auto'; a: (typeof autosForSelectedDay)[number] };
+  const dayEntries: DayEntry[] = [
+    ...itemsForSelectedDay.map((item, idx) => ({ kind: 'item' as const, item, idx })).filter(e => !e.item.completed),
+    ...autosForSelectedDay.map(a => ({ kind: 'auto' as const, a })),
+    ...itemsForSelectedDay.map((item, idx) => ({ kind: 'item' as const, item, idx })).filter(e => e.item.completed),
+  ];
 
   return (
     <View style={styles.container}>
@@ -777,12 +791,41 @@ function CalendarMain() {
                       </TouchableOpacity>
                     );
                   })()}
-                <Text style={styles.sectionTitle}>📝 我的事项</Text>
+                <Text style={styles.sectionTitle}>📝 这天的事项</Text>
                 <ScrollView style={styles.noteList}>
-                  {itemsForSelectedDay.length === 0 ? (
+                  {dayEntries.length === 0 ? (
                     <Text style={{ color: '#bbb', textAlign: 'center', marginTop: 20 }}>暂无事项</Text>
                   ) : (
-                    itemsForSelectedDay.map((item, idx) => (
+                    dayEntries.map(entry => entry.kind === 'auto' ? (
+                      <View key={`auto-${entry.a.taskId}`} style={styles.noteItemRow}>
+                        <TouchableOpacity onPress={() => completeTask(entry.a.taskId)} style={styles.checkbox} />
+                        <View style={[styles.noteTextBox, { flex: 1 }]}>
+                          <Text style={[styles.noteItemText, { color: '#222' }]}>
+                            <PriDot q={entry.a.quadrant} size={11} />
+                            {entry.a.title}
+                          </Text>
+                          <Text style={styles.noteItemDate}>
+                            🗓 自动排在 {minutesToHM(entry.a.start)}–{minutesToHM(entry.a.end)} · {entry.a.minutes} 分钟
+                            {(() => {
+                              const due = scheduledDue.get(entry.a.taskId);
+                              return due ? ` · ${due.slice(5)} 截止` : ' · 没有截止日';
+                            })()}
+                          </Text>
+                        </View>
+                        <TouchableOpacity onPress={() => startTimerFor(entry.a.taskId, entry.a.minutes)} style={styles.rowBtn}>
+                          <Text style={styles.playText}>▶</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setModalVisible(false);
+                            openBreakdown(entry.a.taskId);
+                          }}
+                          style={styles.rowBtn}
+                        >
+                          <Text style={{ fontSize: 15 }}>🧩</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : ((item: CalendarItem, idx: number) => (
                       <View key={item.id}>
                       <View style={styles.noteItemRow}>
                         <TouchableOpacity onPress={() => toggleItemCompleted(item)} style={[styles.checkbox, item.completed && { backgroundColor: '#1976D2', borderColor: '#1976D2' }]}>
@@ -909,7 +952,7 @@ function CalendarMain() {
                           </View>
                         )}
                       </View>
-                    ))
+                    ))(entry.item, entry.idx))
                   )}
                   {/* 完整时间轴（含玩的时间、休息日；排在截止后的标 ⚠️） */}
                   {allBlocks.some(b => b.date === currentEditDate) && (
@@ -967,30 +1010,6 @@ function CalendarMain() {
                       ))}
                     </View>
                   )}
-                  {/* 自动排进这天的任务 */}
-                  {(() => {
-                    const autos = scheduledFor(currentEditDate, new Set(itemsForSelectedDay.map(i => i.id)));
-                    if (autos.length === 0) return null;
-                    return (
-                      <View style={styles.autoSection}>
-                        <Text style={styles.autoTitle}>🗓 自动排进这天的任务</Text>
-                        {autos.map(a => (
-                          <View key={a.taskId} style={styles.autoRow}>
-                            <TouchableOpacity onPress={() => completeTask(a.taskId)} style={{ paddingRight: 8 }}>
-                              <Text style={{ fontSize: 18 }}>⬜</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.autoRowText} numberOfLines={1}>
-                              {minutesToHM(a.start)}–{minutesToHM(a.end)}　{a.title}
-                              <Text style={styles.autoMeta}>　{a.minutes} 分钟</Text>
-                            </Text>
-                            <TouchableOpacity onPress={() => startTimerFor(a.taskId, a.minutes)} style={styles.rowBtn}>
-                              <Text style={styles.playText}>▶</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ))}
-                      </View>
-                    );
-                  })()}
                 </ScrollView>
 
                 {/* 添加事项区域 */}
