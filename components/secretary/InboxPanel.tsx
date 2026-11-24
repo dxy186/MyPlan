@@ -245,23 +245,6 @@ export default function InboxPanel({ embedded = false }: Props = {}) {
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
 
-      {/* 手动补充 */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>✍️ 自然语言补充</Text>
-        <Text style={styles.subText}>例：下周三交机器学习项目报告 / 12月20日前完成论文初稿</Text>
-        <TextInput
-          style={styles.input}
-          value={quickText}
-          onChangeText={setQuickText}
-          placeholder="输入一句话，自动识别日期"
-          placeholderTextColor="#aaa"
-          onSubmitEditing={handleQuickAdd}
-        />
-        <TouchableOpacity style={styles.primaryBtn} onPress={handleQuickAdd}>
-          <Text style={styles.primaryBtnText}>加入任务池</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Canvas iCal */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>📚 Canvas / LMS 日历（iCal）</Text>
