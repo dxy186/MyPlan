@@ -20,7 +20,7 @@ import TimeLogPanel from '@/components/secretary/TimeLogPanel';
 
 const TABS = [
   { key: 'energy', label: '📖 今日记录' },
-  { key: 'overview', label: '📊 概览 · 勋章' },
+  { key: 'overview', label: '📊 概览·勋章' },
   { key: 'time', label: '⏱ 时间记录' },
   { key: 'done', label: '✅ 已完成' },
   { key: 'habits', label: '🧠 习惯档案' },

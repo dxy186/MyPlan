@@ -35,8 +35,8 @@ export default function SubTabBar({ tabs, active, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 12 },
-  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 18, backgroundColor: '#E8EEF7' },
+  bar: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 12 },
+  tab: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: '#E8EEF7' },
   tabActive: { backgroundColor: '#1976D2' },
   tabText: { fontSize: 13, color: '#5776A5', fontWeight: '600' },
   tabTextActive: { color: '#fff' },
