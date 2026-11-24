@@ -353,7 +353,8 @@ export default function AssistantScreen() {
     setError('');
     setInput('');
     const userMsg: Msg = { role: 'user', content: text, at: new Date().toISOString() };
-    // 发新消息时，上一个没确认的方案就作废了
+    // 发新消息时，上一个还没点「应用」的方案不丢：把它勾选的操作并进这次的新方案里
+    const carried = proposal ? proposal.actions.filter((_, i) => proposal.enabled[i] && proposal.changes[i]?.ok) : [];
     const h1 = [...markPending(history, 'dismissed'), userMsg];
     saveHistory(h1);
     setLoading(true);
@@ -364,15 +365,22 @@ export default function AssistantScreen() {
       setState(fresh);
       const insights = buildInsights(fresh.timeLogs, fresh.goals, await loadBlockLog(), reasonSummary(await loadReviews()));
       const context = buildContext(fresh, schedule, new Date(), habitsForAi(insights, fresh.memories ?? []));
-      const pendingNote = proposal ? '\n\n（注意：上一个方案用户还没确认，以下面的新要求为准重新给出完整方案。）' : '';
+      const pendingNote = carried.length
+        ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
+        : '';
       const result = await callChatJSON<{ reply?: string; actions?: AssistantAction[] }>([
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: `当前数据：\n${context}` },
         ...historyForAi(h1.slice(-9, -1)),
         { role: 'user', content: text + pendingNote },
       ]);
-      const actions = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
-      const reply = String(result.reply || (actions.length ? '我拟了一个调整方案，请确认。' : '好的。'));
+      const fresh2 = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
+      // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
+      const seen = new Set(carried.map(a => JSON.stringify(a)));
+      const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];
+      let reply = String(result.reply || (actions.length ? '我拟了一个调整方案，请确认。' : '好的。'));
+      if (carried.length && fresh2.length) reply += `\n（上一个还没应用的 ${carried.length} 项也一起放进了这个方案。）`;
+      if (actions.length) reply += '\n👉 点下面的「应用」后才会生效。';
       saveHistory([
         ...h1,
         { role: 'assistant', content: reply, at: new Date().toISOString(), ...(actions.length ? { proposal: 'pending' as const } : {}) },
