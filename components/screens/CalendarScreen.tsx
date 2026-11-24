@@ -40,6 +40,10 @@ import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assis
 // ---------- 数据 ----------
 // 日历里的事项就是统一任务列表里带截止日的任务（见 components/data/calendar-bridge.ts），
 // 在这里加 / 改 / 勾 / 删，任务页、排程和 AI 都会同步。颜色、加粗、顺序单独保存。
+
+/** 日历配色：DDL 红字，固定日程绿字 */
+const DDL_RED = '#D32F2F';
+const FIXED_GREEN = '#2E7D32';
 const DATE_BGCOLOR_KEY = '@myplan_datebgcolor'; // 仅存储背景色
 
 // ---------- 24色 + 黑白 ----------
@@ -581,7 +585,7 @@ function CalendarMain() {
               style={[
                 styles.itemText,
                 {
-                  color: item.textColor || '#333',
+                  color: item.ddl ? DDL_RED : item.textColor || '#333',
                   fontWeight: item.bold ? 'bold' : '400',
                   textDecorationLine: item.completed ? 'line-through' : 'none',
                   opacity: isCurrentMonth ? 1 : 0.5,
@@ -801,7 +805,7 @@ function CalendarMain() {
                             activeOpacity={0.7}
                             onPress={() => handleItemTitlePress(item)}
                           >
-                            <Text style={[styles.noteItemText, { color: item.textColor || '#222', fontWeight: item.bold ? 'bold' : '400' }, item.completed && { textDecorationLine: 'line-through', color: '#b0b0b0' }]}>
+                            <Text style={[styles.noteItemText, { color: item.ddl ? DDL_RED : item.textColor || '#222', fontWeight: item.bold ? 'bold' : '400' }, item.completed && { textDecorationLine: 'line-through', color: '#b0b0b0' }]}>
                               {item.title}
                             </Text>
                             <Text style={styles.noteItemDate}>
@@ -931,7 +935,7 @@ function CalendarMain() {
                       <Text style={styles.autoTitle}>📌 固定日程（排程会避开）</Text>
                       {fixedFor(currentEditDate).map(f => (
                         <View key={f.id} style={styles.autoRow}>
-                          <Text style={styles.fixedRowText} numberOfLines={1}>
+                          <Text style={[styles.fixedRowText, { color: FIXED_GREEN }]} numberOfLines={1}>
                             {minutesToHM(f.startMin)}–{minutesToHM(f.endMin)}　{f.title}
                             {f.weekday !== undefined ? <Text style={styles.autoMeta}>　每周</Text> : null}
                           </Text>
@@ -1179,7 +1183,7 @@ const styles = StyleSheet.create({
   addContainer: { marginTop: 10 },
   addRow: { flexDirection: 'row', alignItems: 'center' },
   autoItemText: { color: '#9E9E9E', fontStyle: 'italic', fontWeight: '400' },
-  fixedItemText: { color: '#546E7A', fontWeight: '400' },
+  fixedItemText: { color: FIXED_GREEN, fontWeight: '400' },
   fixedRowText: { flex: 1, fontSize: 14, color: '#455A64' },
   slotText: { color: '#1976D2', fontSize: 12 },
   slotWarn: { color: '#D84315', fontSize: 12 },
