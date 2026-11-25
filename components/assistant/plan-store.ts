@@ -100,6 +100,18 @@ export async function loadPlanState(): Promise<PlanState> {
   return { goals, fixed, energyLogs, timeLogs, memories, settings };
 }
 
+/**
+ * 只是一个截止日（DDL）、不需要自动排时间的任务：
+ * 有截止日，没指定「哪天做 / 几点开始」，没拆成子任务，也不是别人的子任务；
+ * 或者名字里就写着 DDL / 截止（比如「ESquiz DDL」）。
+ * 这类任务只在日历的截止日上显示（红字），不排进日程。要给它留时间，就拆分（🧩）或设开始日期。
+ */
+export function isDeadlineOnly(t: PlanTask): boolean {
+  if (t.split || t.parentId || !t.due) return false;
+  if (/ddl|deadline|截止/i.test(t.title)) return true;
+  return !t.notBefore && t.startMin === undefined;
+}
+
 export function allTasks(goals: Goal[]): TaskRef[] {
   const out: TaskRef[] = [];
   goals.forEach(goal =>
@@ -130,7 +142,8 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
   const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
   const dueById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.due]));
   const pending = allTasks(state.goals)
-    .filter(r => !r.task.done && !r.task.split)
+    // DDL（只有截止日、没拆）不自动排程
+    .filter(r => !r.task.done && !r.task.split && !isDeadlineOnly(r.task))
     .map(r => ({
       ...r.task,
       // 优先级：任务自己的 → 父任务的 → 目标的
@@ -817,7 +830,8 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 7. 日期用 YYYY-MM-DD，根据「现在」推算「明天」「周五」等。
 7.1 分清「哪天做」和「哪天前完成」——这一点非常重要，否则任务会被排到今天：
    - 「周五写报告」「明天去取快递」「下周一复习」「25 号整理笔记」= 指定那天做 → notBefore 和 due 都填那一天。
-   - 「周五前交报告」「月底截止」「下周三考试，帮我复习」= 截止日 → 只填 due（考试这类，due 填考试前一天），系统会从现在起尽早安排。
+   - 「周五前交报告」「月底截止」「XX DDL」= 截止日 → 只填 due。注意：只有截止日、没拆分的任务（DDL）不会被自动排进日程，只在日历上红字提醒。
+   - 截止前确实需要花时间做的（写报告、复习考试、做项目）：用 split_task 拆成步骤（子任务会在截止前自动排时间）；或者用户说了哪天开始，就填 notBefore。考试这类 due 填考试前一天。
    - 拿不准时按「那天做」处理，并在 reply 里说明你是怎么理解的。
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
 8.1 用户只是提问、不需要改数据时，actions 留空。让你拆解目标或任务时，用 split_task（已有任务填 taskId，新的填 title），不要用一串 add_task，在 reply 里讲清拆解思路。
