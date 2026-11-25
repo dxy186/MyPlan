@@ -33,8 +33,8 @@ const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 const COSTS: EnergyCost[] = ['high', 'medium', 'low'];
 
 /** 从今天到截止日，每天大概还空多少分钟（扣掉固定日程、玩的时间和已经排了的其他任务） */
-export function freeMinutesByDay(state: PlanState, schedule: ScheduleResult | null, excludeTaskId: string, until: string) {
-  const today = todayStr();
+export function freeMinutesByDay(state: PlanState, schedule: ScheduleResult | null, excludeTaskId: string, until: string, from?: string) {
+  const today = from && from > todayStr() ? from : todayStr();
   const s = state.settings;
   const out: { date: string; free: number; note: string }[] = [];
   const last = diffDays(today, until) < 0 ? today : until;
@@ -100,8 +100,10 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
   if (!ref) throw new Error('找不到这个任务，可能已经被删除了');
   const schedule = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
   const today = todayStr();
-  const until = ref.task.due && diffDays(today, ref.task.due) >= 0 ? ref.task.due : addDays(today, 6);
-  const free = freeMinutesByDay(state, schedule, taskId, until);
+  // 用户给这个任务设了「开始」：拆出来的步骤都从那天起排
+  const startFrom = ref.task.notBefore && ref.task.notBefore > today ? ref.task.notBefore : today;
+  const until = ref.task.due && diffDays(startFrom, ref.task.due) >= 0 ? ref.task.due : addDays(startFrom, 6);
+  const free = freeMinutesByDay(state, schedule, taskId, until, startFrom);
   const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
   const cat = categoryOf(ref.task.title);
   const catStat = categoryFactors(state.timeLogs, state.goals).find(c => c.category === cat);
@@ -123,7 +125,8 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
         ]
       : []),
     '',
-    `## 可用日期（${today} 到 ${until}）每天大概还空多少分钟`,
+    startFrom !== today ? `用户设了开始日期：${startFrom}${ref.task.startMin !== undefined ? ' ' + minutesToHM(ref.task.startMin) : ''}，第一步不能早于这天。` : '',
+    `## 可用日期（${startFrom} 到 ${until}）每天大概还空多少分钟`,
     ...free.map(f => `${f.date} 周${WEEK[weekdayOf(f.date)]}：${f.free} 分钟${f.note ? `（${f.note}）` : ''}`),
     '',
     `## 用户的速度`,
