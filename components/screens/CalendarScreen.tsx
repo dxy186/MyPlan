@@ -24,7 +24,7 @@ import {
 } from '@/components/data/calendar-bridge';
 import { useTodayStr } from '@/hooks/use-today';
 
-import { FixedEvent, KEYS, Quadrant, addDays, loadJSON, minutesToHM, saveJSON, weekdayOf } from '@/app/utils/planning';
+import { FixedEvent, KEYS, PlanTask, Quadrant, addDays, loadJSON, minutesToHM, saveJSON, weekdayOf } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 import { askAi } from '@/components/assistant/ask-bridge';
 import { loadReminderSettings } from '@/components/assistant/followup';
@@ -177,7 +177,13 @@ function CalendarMain() {
       const styles = await loadCalendarStyles(st);
       setItemStyles(styles);
       setCalendarItems(tasksToCalendarItems(st, styles));
-      setScheduledDue(new Map(allTasks(st.goals).filter(r => !!r.task.due).map(r => [r.task.id, r.task.due as string])));
+      {
+        const refs = allTasks(st.goals);
+        const byId = new Map(refs.map(r => [r.task.id, r.task]));
+        // 子任务没设截止日的，跟父任务的截止日
+        const eff = (t: PlanTask) => t.due ?? (t.parentId ? byId.get(t.parentId)?.due : undefined);
+        setScheduledDue(new Map(refs.filter(r => !!eff(r.task)).map(r => [r.task.id, eff(r.task) as string])));
+      }
       const sch = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
       setScheduled((sch?.items ?? []).filter(i => i.type === 'task' && !!i.taskId));
       setAllBlocks((sch?.items ?? []).filter(i => i.type !== 'buffer'));
@@ -1327,7 +1333,7 @@ const styles = StyleSheet.create({
   dateInput: { borderBottomWidth: 1, borderColor: '#1976D2', fontSize: 13, minWidth: 90, marginLeft: 4, marginRight: 4, padding: 0, color: '#1976D2' },
   addContainer: { marginTop: 10 },
   addRow: { flexDirection: 'row', alignItems: 'center' },
-  autoItemText: { color: '#9E9E9E', fontStyle: 'italic', fontWeight: '400' },
+  autoItemText: { color: '#333', fontWeight: '400' },
   fixedItemText: { color: FIXED_GREEN, fontWeight: '400' },
   fixedRowText: { flex: 1, fontSize: 14, color: '#455A64' },
   slotText: { color: '#1976D2', fontSize: 12 },
@@ -1346,8 +1352,8 @@ const styles = StyleSheet.create({
   autoSection: { marginTop: 10, paddingTop: 8, borderTopWidth: 0.6, borderColor: '#e6e6ed' },
   autoTitle: { fontSize: 13, color: '#888', marginBottom: 4 },
   autoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
-  autoRowText: { flex: 1, fontSize: 14, color: '#757575', fontStyle: 'italic' },
-  autoMeta: { fontSize: 12, color: '#aaa', fontStyle: 'normal' },
+  autoRowText: { flex: 1, fontSize: 14, color: '#222' },
+  autoMeta: { fontSize: 12, color: '#888' },
   aiInput: { borderColor: '#B39DDB' },
   aiBtn: { backgroundColor: '#7E57C2' },
   addInput: { flex: 1, padding: 8, borderWidth: 1, borderColor: '#e4e9f1', borderRadius: 8, fontSize: 15, backgroundColor: '#fff' },

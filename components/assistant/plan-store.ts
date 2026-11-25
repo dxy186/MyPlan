@@ -898,6 +898,7 @@ export function buildContext(
   const refs = allTasks(state.goals);
   const pending = refs.filter(r => !r.task.done && !r.task.split);
   const titleById = new Map(refs.map(r => [r.task.id, r.task.title]));
+  const dueOf = new Map(refs.map(r => [r.task.id, r.task.due]));
   pending
     .sort((a, b) => (a.task.due || '9999').localeCompare(b.task.due || '9999'))
     .slice(0, 80)
@@ -906,7 +907,7 @@ export function buildContext(
         .filter(Boolean)
         .join(' ');
       lines.push(
-        `${t.id} | ${t.title}${t.parentId && titleById.has(t.parentId) ? `（「${titleById.get(t.parentId)}」的子任务）` : ''} | ${goal.title} | ${t.estimateMin} | ${spent.get(t.id) ?? 0} | ${t.energyCost} | ${t.due || '无'} | ${extra}`
+        `${t.id} | ${t.title}${t.parentId && titleById.has(t.parentId) ? `（「${titleById.get(t.parentId)}」的子任务）` : ''} | ${goal.title} | ${t.estimateMin} | ${spent.get(t.id) ?? 0} | ${t.energyCost} | ${t.due || (t.parentId && dueOf.get(t.parentId) ? `${dueOf.get(t.parentId)}（跟父任务）` : '无')} | ${extra}`
       );
     });
   if (pending.length === 0) lines.push('（没有）');
