@@ -799,6 +799,7 @@ export function buildContext(
   const gold = goldenSlots(predictCurve(state.energyLogs, today)).map(slotLabel);
   if (gold.length) lines.push(`精力最好的时段：${gold.join('、')}`);
 
+  lines.push('（以下是此刻的真实数据：用户可能在日历 / 任务页手动增删改过，和对话历史对不上时以这里为准）');
   lines.push('', '## 未完成任务（id | 任务 | 所属目标 | 预估分钟 | 已投入分钟 | 耗能 | 截止 | 其他）');
   const refs = allTasks(state.goals);
   const pending = refs.filter(r => !r.task.done && !r.task.split);
@@ -913,4 +914,5 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 15. 分清三种东西：要「做」的事 → 任务（add_task / split_task）；时间定死、要占时间的课和会 → 固定日程（add_fixed_event）；某天「发生」、不需要用户完成什么、只是要记住的日子（生日、纪念日、节日、出发 / 回国、发工资）→ 重要事件 add_event（生日、纪念日 yearly=true）。
    - 凡是 DDL / 截止 / due / 交 / 提交 / 作业 / pre / presentation / quiz / 考试 / 测验 / 报告 / 论文这类「到那天要交出东西或要完成」的，一律是任务（DDL：add_task 只填 due），绝不能记成重要事件。
    - 只有用户明确说「记成重要事件 / 加个 ⭐ / 只是提醒我这天」时，才把这类记成 add_event。
-16. 用户明确说「把 X 排在某天几点」（哪怕那时有课 / 固定日程）→ 以任务为主：add_task / update_task 填 notBefore + startTime，系统会照这个时间排，并提示冲突；不要擅自改时间，可以在 reply 里提醒一句和哪个固定日程冲突。没说具体时间的，系统自动排时会避开固定日程。`;
+16. 用户明确说「把 X 排在某天几点」（哪怕那时有课 / 固定日程）→ 以任务为主：add_task / update_task 填 notBefore + startTime，系统会照这个时间排，并提示冲突；不要擅自改时间，可以在 reply 里提醒一句和哪个固定日程冲突。没说具体时间的，系统自动排时会避开固定日程。
+17. 「当前数据」永远是准的，对话历史只是过去说过的话。历史里提到的任务 / DDL / 重要事件 / 固定日程，如果在当前数据里找不到，说明用户已经在日历或任务页删掉或改掉了：不要说它「已经在日历上」「还在」，也不要拿它来问用户（比如问「7 号和 8 号是不是重复」）；用户这次又提到它，就当作新的，照常添加。判断某天有没有某件事，只看当前数据。`;
