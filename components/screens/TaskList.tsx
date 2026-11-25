@@ -229,11 +229,14 @@ function TaskEditor({
   onSave,
   onDelete,
   onClose,
+  parentDue,
 }: {
   task: PlanTask;
   onSave: (a: AssistantAction) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** 子任务：父任务的截止日（自己没设时跟它一致） */
+  parentDue?: string;
 }) {
   const [title, setTitle] = useState(task.title);
   const [minutes, setMinutes] = useState(String(task.estimateMin));
@@ -272,7 +275,7 @@ function TaskEditor({
           style={[styles.input, styles.dateInput, !dueOk && styles.inputBad]}
           value={due}
           onChangeText={setDue}
-          placeholder="11-30，可空"
+          placeholder={parentDue ? `空 = 跟父任务 ${parentDue.slice(5)}` : '11-30，可空'}
           placeholderTextColor="#aaa"
         />
         <Text style={styles.lbl}>时段</Text>
@@ -819,7 +822,12 @@ export default function TaskList() {
                               <>
                                 {COST_ICON[t.energyCost]} {t.estimateMin} 分钟
                                 {used ? ` · 已做 ${used} 分钟` : ''}
-                                {t.due ? ` · ${depth > 0 && t.notBefore === t.due ? `${t.due.slice(5)} 做` : dueLabel(t.due)}` : ''}
+                                {t.due
+                                  ? ` · ${depth > 0 && t.notBefore === t.due ? `${t.due.slice(5)} 做` : dueLabel(t.due)}`
+                                  : (() => {
+                                      const pd = t.parentId ? all.find(p => p.id === t.parentId)?.due : undefined;
+                                      return pd ? ` · ${dueLabel(pd)}（跟父任务）` : '';
+                                    })()}
                                 {!t.done && t.notBefore && t.notBefore >= today && !(depth > 0 && t.notBefore === t.due)
                                   ? ` · ${t.notBefore === today ? '今天' : t.notBefore.slice(5)}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 开始`
                                   : ''}
@@ -947,6 +955,7 @@ export default function TaskList() {
                       {editing === t.id && (
                         <TaskEditor
                           task={t}
+                          parentDue={t.parentId ? all.find(p => p.id === t.parentId)?.due : undefined}
                           onClose={() => setEditing(null)}
                           onSave={runAction}
                           onDelete={() => {
