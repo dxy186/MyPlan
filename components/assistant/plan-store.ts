@@ -343,6 +343,17 @@ export function cleanSteps(raw: unknown): SplitStep[] {
   return out;
 }
 
+/** 手动定了几点的任务和固定日程冲突时的提示（以任务为主，照样排在那个时间） */
+export function clashNote(fixed: FixedEvent[], t: PlanTask): string {
+  if (t.startMin === undefined || !t.notBefore) return '';
+  const end = t.startMin + t.estimateMin;
+  const wd = weekdayOf(t.notBefore);
+  const hit = fixed.filter(e => (e.date ? e.date === t.notBefore : e.weekday === wd) && e.startMin < end && e.endMin > (t.startMin as number));
+  return hit.length
+    ? `\n⚠️ 注意：${t.notBefore.slice(5)} ${minutesToHM(t.startMin)}–${minutesToHM(end)} 和固定日程「${hit.map(e => `${e.title} ${minutesToHM(e.startMin)}–${minutesToHM(e.endMin)}`).join('、')}」冲突，按你定的时间排`
+    : '';
+}
+
 const QUADS: Quadrant[] = ['important_urgent', 'not_important_urgent', 'important_not_urgent', 'not_important_not_urgent'];
 const QUAD_CN: Record<Quadrant, string> = {
   important_urgent: '重要紧急',
@@ -436,7 +447,7 @@ export function applyActions(
             createdAt: new Date().toISOString(),
           };
           goal.milestones[0].tasks.push(task);
-          changes.push({ action: a, ok: true, summary: `➕ 新增「${title}」（${describeTask(task)}）→ ${goal.title}` });
+          changes.push({ action: a, ok: true, summary: `➕ 新增「${title}」（${describeTask(task)}）→ ${goal.title}${clashNote(next.fixed, task)}` });
           break;
         }
         case 'update_task': {
@@ -464,7 +475,7 @@ export function applyActions(
           changes.push({
             action: a,
             ok: true,
-            summary: `✏️ 调整「${before}」${before !== t.title ? ` → 「${t.title}」` : ''}（${describeTask(t)}）`,
+            summary: `✏️ 调整「${before}」${before !== t.title ? ` → 「${t.title}」` : ''}（${describeTask(t)}）${clashNote(next.fixed, t)}`,
           });
           break;
         }
@@ -899,4 +910,5 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 14. 用户说「忘掉…」「不用再…」→ 用 forget 删掉对应偏好，并用 delete_fixed_event 删掉对应的占位日程。
 13. 无论用户怎么说（口语、错别字、一句话里好几件事、只是闲聊或抱怨），都要猜出他最可能的意图并照做；只有真的无法判断时才在 reply 里追问一句。永远只输出一个 JSON 对象 {"reply": "...", "actions": [...]}，不要在 JSON 外面写任何文字，不要用 markdown 代码块。
 14. 用户说「写进日记 / 加入日记 / 记到日记里 / 记一下今天…」这类话 → 用 add_diary。text 用用户自己的原话（只去掉「帮我写进日记」这类指令词、改掉明显错别字，不要改写成别的语气，不要加评论）；同一句里如果还有别的安排要求，照常输出其他操作。reply 简短确认即可。
-15. 分清三种东西：要「做」的事 → 任务（add_task / split_task）；时间定死、要占时间的课和会 → 固定日程（add_fixed_event）；某天「发生」、只是要记住的日子（生日、纪念日、考试当天、出发 / 回国、节日、发工资、面试当天）→ 重要事件 add_event（生日、纪念日 yearly=true）。用户说「记一下 X 号是…」「别忘了 X 号…」通常是重要事件。如果考试、面试之前还要准备，可以同时加一个准备任务。`;
+15. 分清三种东西：要「做」的事 → 任务（add_task / split_task）；时间定死、要占时间的课和会 → 固定日程（add_fixed_event）；某天「发生」、只是要记住的日子（生日、纪念日、考试当天、出发 / 回国、节日、发工资、面试当天）→ 重要事件 add_event（生日、纪念日 yearly=true）。用户说「记一下 X 号是…」「别忘了 X 号…」通常是重要事件。如果考试、面试之前还要准备，可以同时加一个准备任务。
+16. 用户明确说「把 X 排在某天几点」（哪怕那时有课 / 固定日程）→ 以任务为主：add_task / update_task 填 notBefore + startTime，系统会照这个时间排，并提示冲突；不要擅自改时间，可以在 reply 里提醒一句和哪个固定日程冲突。没说具体时间的，系统自动排时会避开固定日程。`;
