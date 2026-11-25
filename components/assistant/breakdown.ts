@@ -10,7 +10,7 @@ import { ScheduleResult } from '@/app/utils/scheduler';
 
 import { loadReviews, reasonSummary } from './followup';
 import { buildInsights, categoryFactors, categoryOf, habitsForAi, loadBlockLog } from './habits';
-import { PlanState, allTasks, commitState, loadPlanState, spentByTask, splitTaskInGoals } from './plan-store';
+import { PlanState, allTasks, commitState, explicitStart, loadPlanState, spentByTask, splitTaskInGoals } from './plan-store';
 
 export const BREAKDOWN_EVENT = 'myplan:breakdown';
 export const DATA_CHANGED_EVENT = 'myplan:data-changed';
@@ -101,7 +101,8 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
   const schedule = await loadJSON<ScheduleResult | null>(KEYS.schedule, null);
   const today = todayStr();
   // 用户给这个任务设了「开始」：拆出来的步骤都从那天起排
-  const startFrom = ref.task.notBefore && ref.task.notBefore > today ? ref.task.notBefore : today;
+  const st0 = explicitStart({ ...ref.task, split: true });
+  const startFrom = st0 && st0 > today ? st0 : today;
   const until = ref.task.due && diffDays(startFrom, ref.task.due) >= 0 ? ref.task.due : addDays(startFrom, 6);
   const free = freeMinutesByDay(state, schedule, taskId, until, startFrom);
   const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
