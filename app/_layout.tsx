@@ -4,6 +4,7 @@ import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'r
 import AssistantScreen, { FOCUS_ASSISTANT_EVENT } from '../components/assistant/AssistantScreen';
 import CalendarPage from '../components/screens/CalendarScreen';
 import ReviewScreen from '../components/screens/ReviewScreen';
+import ErrorBoundary from '../components/ui/ErrorBoundary';
 import SettingsScreen from '../components/screens/SettingsScreen';
 import TasksScreen from '../components/screens/TasksScreen';
 import ReminderService from '../components/assistant/ReminderService';
@@ -94,7 +95,9 @@ export default function RootLayout() {
         ))}
       </View>
       <View style={styles.content}>
-        {renderPage()}
+        <ErrorBoundary key={activeKey} name={activeKey}>
+          {renderPage()}
+        </ErrorBoundary>
       </View>
     </View>
   );

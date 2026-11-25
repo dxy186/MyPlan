@@ -12,7 +12,8 @@ type Legacy = { id?: string; date: string; text?: string; source?: string; at?: 
 
 /** 读日记，并把旧格式（一天多条的 text/source）合并成每天一篇 */
 export async function loadDiaryDays(): Promise<DiaryEntry[]> {
-  const raw = await loadJSON<(DiaryEntry & Legacy)[]>(KEYS.diary, []);
+  const loaded = await loadJSON<(DiaryEntry & Legacy)[]>(KEYS.diary, []);
+  const raw = Array.isArray(loaded) ? loaded : [];
   const byDate = new Map<string, DiaryEntry>();
   let changed = false;
   const now = new Date().toISOString();
@@ -31,10 +32,11 @@ export async function loadDiaryDays(): Promise<DiaryEntry[]> {
       else e.content = e.content ? `${e.content}\n${t}` : t;
       continue;
     }
+    if (r.content !== undefined && typeof r.content !== 'string') r.content = String(r.content);
     e.id = r.id || e.id;
     e.content = [e.content, r.content].filter(Boolean).join(e.content && r.content ? '\n' : '');
-    if (r.mood) e.mood = r.mood;
-    if (r.weather) e.weather = r.weather;
+    if (r.mood) e.mood = String(r.mood);
+    if (r.weather) e.weather = String(r.weather);
     if (r.summary) e.summary = r.summary;
     if (r.weekly) e.weekly = r.weekly;
     e.createdAt = r.createdAt || e.createdAt;
