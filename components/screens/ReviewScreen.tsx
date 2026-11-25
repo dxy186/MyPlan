@@ -17,6 +17,7 @@ import { BadgeInput, computeBadges, weekStats } from '@/components/data/badges';
 import EnergyPanel from '@/components/secretary/EnergyPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 import TimeLogPanel from '@/components/secretary/TimeLogPanel';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 const TABS = [
   { key: 'energy', label: '📖 今日记录' },
@@ -108,11 +109,30 @@ export default function ReviewScreen() {
   const [state, setState] = useState<PlanState | null>(null);
   const [extra, setExtra] = useState<Pick<BadgeInput, 'reviewDates' | 'planDates'>>({ reviewDates: [], planDates: [] });
 
+  const [loadErr, setLoadErr] = useState('');
   useEffect(() => {
     (async () => {
-      const [s, reviews, plans] = await Promise.all([loadPlanState(), loadReviews(), loadDailyPlans()]);
-      setState(s);
-      setExtra({ reviewDates: reviews.map(r => r.date), planDates: plans.map(p => p.date) });
+      // 每一项单独兜底：旧版本留下的数据格式不对时，也不会让整个复盘页一直转圈
+      const safe = async <T,>(p: Promise<T>, fb: T): Promise<T> => {
+        try {
+          return await p;
+        } catch (e) {
+          console.error('[MyPlan] 复盘读取失败', e);
+          return fb;
+        }
+      };
+      try {
+        const s = await loadPlanState();
+        setState(s);
+      } catch (e: any) {
+        setLoadErr(e?.message || String(e));
+      }
+      const [reviews, plans] = await Promise.all([safe(loadReviews(), [] as any[]), safe(loadDailyPlans(), [] as any[])]);
+      const arr = (x: unknown) => (Array.isArray(x) ? x : []);
+      setExtra({
+        reviewDates: arr(reviews).map((r: any) => r?.date).filter(Boolean),
+        planDates: arr(plans).map((p: any) => p?.date).filter(Boolean),
+      });
     })();
   }, [tab]);
 
@@ -121,15 +141,21 @@ export default function ReviewScreen() {
       <Text style={styles.title}>📊 复盘</Text>
       <SubTabBar tabs={TABS} active={tab} onChange={setTab} />
       <View style={{ flex: 1 }}>
-        {!state ? (
-          <ActivityIndicator style={{ marginTop: 40 }} />
+        {tab === 'energy' ? (
+          <ErrorBoundary name="复盘 · 今日记录">
+            <EnergyPanel />
+          </ErrorBoundary>
+        ) : !state ? (
+          loadErr ? (
+            <Text style={{ color: '#C62828', marginTop: 20 }}>读取数据出错：{loadErr}</Text>
+          ) : (
+            <ActivityIndicator style={{ marginTop: 40 }} />
+          )
         ) : tab === 'overview' ? (
           <Overview state={state} extra={extra} />
         ) : tab === 'time' ? (
           <TimeLogPanel />
 
-        ) : tab === 'energy' ? (
-          <EnergyPanel />
         ) : tab === 'done' ? (
           <DoneList state={state} />
         ) : (

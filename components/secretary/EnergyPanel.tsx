@@ -126,7 +126,9 @@ export default function EnergyPanel() {
 
   useEffect(() => {
     (async () => {
-      setLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
+      // 旧版本的数据可能缺字段：只保留分数是数字的记录
+      const raw = await loadJSON<EnergyLog[]>(KEYS.energyLogs, []);
+      setLogs((Array.isArray(raw) ? raw : []).filter(l => l && typeof l.score === 'number' && isFinite(l.score) && typeof l.date === 'string'));
       setDiary(await loadDiaryDays());
     })();
     // AI 写进日记 / 每日总结时刷新
