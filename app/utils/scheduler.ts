@@ -348,6 +348,39 @@ export function generateSchedule(
   // 每个任务排到的最后一段：有依赖的任务必须排在依赖做完之后
   const lastEnd = new Map<string, { date: string; end: number }>();
 
+  // 用户亲手定了「那天几点」的任务：以任务为主，就排在那个时间，哪怕和固定日程冲突（会标出冲突）；
+  // 其他自动排的任务会避开它。时间已经过去的，退回自动排。
+  const pinnedIds = new Set<string>();
+  for (const task of ordered) {
+    const d = task.notBefore;
+    if (task.startMin === undefined || !d || !days.includes(d)) continue;
+    if (d === start && opts.notBeforeMin !== undefined && task.startMin < opts.notBeforeMin) continue;
+    const dur = Math.max(5, calibrateEstimate(task.estimateMin, opts.speedFactor));
+    const iv: Interval = { start: task.startMin, end: Math.min(24 * 60, task.startMin + dur) };
+    const wd = weekdayOf(d);
+    const clash = fixed
+      .filter(e => (e.date ? e.date === d : e.weekday === wd) && e.startMin < iv.end && e.endMin > iv.start)
+      .map(e => `${e.title} ${fmtRange(e.startMin, e.endMin)}`);
+    gapsFor(d);
+    dayGaps.set(d, subtract(gapsFor(d), [iv]));
+    items.push({
+      id: `task-${task.id}-${iv.start}-${iv.end}-${d}`,
+      date: d,
+      startMin: iv.start,
+      endMin: iv.end,
+      title: task.title,
+      type: 'task',
+      taskId: task.id,
+      energyCost: task.energyCost,
+      slotKey: slotKeyOfMinute(iv.start),
+      quadrant: task.quadrant,
+      note: clash.length ? `你定的时间，和固定日程「${clash.join('、')}」冲突` : undefined,
+    });
+    lastEnd.set(task.id, { date: d, end: iv.end });
+    pinnedIds.add(task.id);
+  }
+  if (pinnedIds.size) ordered.splice(0, ordered.length, ...ordered.filter(t => !pinnedIds.has(t.id)));
+
   for (const task of ordered) {
     let remaining = calibrateEstimate(task.estimateMin, opts.speedFactor);
     let depAfter: { date: string; end: number } | null = null;
