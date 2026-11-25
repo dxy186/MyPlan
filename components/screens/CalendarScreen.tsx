@@ -856,6 +856,23 @@ function CalendarMain() {
                             </Text>
                           ) : null}
                         </Text>
+                        {!ev.yearly && (
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const st = await loadPlanState();
+                              const { next, changes } = applyActions(st, [
+                                { type: 'add_task', title: ev.title, due: ev.date, estimateMin: 30, energyCost: 'medium' },
+                              ]);
+                              if (!changes[0]?.ok) return;
+                              await commitState(next);
+                              await deleteEvent(ev.id);
+                              setAddHint(`✅ 「${ev.title}」已改成截止 ${ev.date.slice(5)} 的 DDL 任务`);
+                            }}
+                            style={{ paddingHorizontal: 6 }}
+                          >
+                            <Text style={{ color: '#1976D2', fontSize: 12 }}>改成 DDL 任务</Text>
+                          </TouchableOpacity>
+                        )}
                         <TouchableOpacity
                           onPress={async () => {
                             if (await confirmAsync(`删除重要事件「${ev.title}」${ev.yearly ? '（每年的都会删掉）' : ''}？`)) deleteEvent(ev.id);

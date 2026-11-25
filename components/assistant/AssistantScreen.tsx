@@ -37,7 +37,7 @@ import {
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
 import { appendDiaryText } from '@/components/data/diary';
-import { addEvent, eventsOn, loadEvents, looksYearly } from '@/components/data/events';
+import { DDL_LIKE, addEvent, eventsOn, loadEvents, looksYearly } from '@/components/data/events';
 import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
@@ -445,7 +445,12 @@ export default function AssistantScreen() {
             }
           : { role: 'user', content: text + pendingNote },
       ], pics.length ? visionOpts(cfg.visionModel) : undefined);
-      const fresh2 = Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : [];
+      const fresh2 = (Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : []).map(a =>
+        // 保险：AI 把 DDL / 作业 / 考试这类记成了重要事件 → 改回 DDL 任务
+        a.type === 'add_event' && DDL_LIKE.test(String((a as any).title || ''))
+          ? ({ type: 'add_task', title: String((a as any).title), due: String((a as any).date), estimateMin: 30, energyCost: 'medium' } as AssistantAction)
+          : a
+      );
       // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
       const seen = new Set(carried.map(a => JSON.stringify(a)));
       const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];

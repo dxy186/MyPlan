@@ -36,6 +36,9 @@ export function eventsOn(list: ImportantEvent[], date: string): ImportantEvent[]
     .sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''));
 }
 
+/** 名字像 DDL / 作业 / 考试的：这些是要完成的任务，不该记成重要事件 */
+export const DDL_LIKE = /ddl|deadline|截止|\bdue\b|提交|交作业|作业|\bpre\b|presentation|quiz|考试|测验|报告|论文/i;
+
 /** 生日 / 纪念日 这类默认每年重复 */
 export function looksYearly(title: string) {
   return /生日|纪念日|周年|忌日/.test(title);
