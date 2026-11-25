@@ -112,6 +112,18 @@ export function isDeadlineOnly(t: PlanTask): boolean {
   return !t.notBefore && t.startMin === undefined;
 }
 
+/**
+ * 用户真正设过的「开始」：开始日和截止日不同，或者写了几点开始。
+ * 在日历某天直接加的事项 notBefore 会等于截止日——对拆过的 DDL 来说那只是截止，不是开始，
+ * 子任务不受它限制，从现在起在截止前排。
+ */
+export function explicitStart(t: PlanTask): string | undefined {
+  if (!t.notBefore) return undefined;
+  if (t.startMin !== undefined) return t.notBefore;
+  if (t.due && t.notBefore === t.due && (t.split || /ddl|deadline|截止/i.test(t.title))) return undefined;
+  return t.notBefore;
+}
+
 export function allTasks(goals: Goal[]): TaskRef[] {
   const out: TaskRef[] = [];
   goals.forEach(goal =>
@@ -154,12 +166,13 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
       // 父任务设了「开始」：子任务不早于那天；第一步还要不早于那个时间
       ...(() => {
         const p = r.task.parentId ? taskById.get(r.task.parentId) : undefined;
-        if (!p?.notBefore) return {};
-        const nb = !r.task.notBefore || r.task.notBefore < p.notBefore ? p.notBefore : r.task.notBefore;
+        const ps = p ? explicitStart(p) : undefined;
+        if (!p || !ps) return {};
+        const nb = !r.task.notBefore || r.task.notBefore < ps ? ps : r.task.notBefore;
         const isFirst = !r.task.deps.some(d => taskById.get(d)?.parentId === p.id);
         return {
           notBefore: nb,
-          startMin: r.task.startMin ?? (isFirst && nb === p.notBefore ? p.startMin : undefined),
+          startMin: r.task.startMin ?? (isFirst && nb === ps ? p.startMin : undefined),
         };
       })(),
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
@@ -265,8 +278,10 @@ export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep
   // 子任务不再一步钉一天：只按先后顺序、在父任务截止前尽量往前排，时间够的话一天可以做好几步。
   // 第一步的日期如果在以后，就作为整组最早开始的日子。
   // 原任务设过「开始」的，子任务不早于那天（以及那个时间）
-  const earliest = [steps[0].date, original.notBefore ?? ''].sort().pop() as string;
-  const startDay = earliest > todayStr() ? earliest : original.notBefore && original.startMin !== undefined ? original.notBefore : undefined;
+  // 日历上直接加的 DDL（开始 = 截止）不算开始，子任务从现在起排
+  const ownStart = original.due && original.notBefore === original.due && original.startMin === undefined ? undefined : original.notBefore;
+  const earliest = [steps[0].date, ownStart ?? ''].sort().pop() as string;
+  const startDay = earliest > todayStr() ? earliest : ownStart && original.startMin !== undefined ? ownStart : undefined;
   let prevId: string | undefined;
   const newTasks: PlanTask[] = steps.map(st => {
     const id = randomId();
@@ -286,7 +301,7 @@ export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep
     return t;
   });
   newTasks[0].deps = [...original.deps];
-  if (original.startMin !== undefined && startDay === original.notBefore) newTasks[0].startMin = original.startMin;
+  if (original.startMin !== undefined && startDay === ownStart) newTasks[0].startMin = original.startMin;
   const lastId = newTasks[newTasks.length - 1].id;
   for (const r of allTasks(goals)) {
     if (r.task.id !== original.id) r.task.deps = r.task.deps.map(d => (d === original.id ? lastId : d));

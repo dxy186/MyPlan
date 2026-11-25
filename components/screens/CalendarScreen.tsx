@@ -441,7 +441,10 @@ function CalendarMain() {
     const before = new Set(st.goals.flatMap(g => g.milestones.flatMap(m => m.tasks.map(t => t.id))));
     const { next, changes } = applyActions(st, [
       // 写在哪天就是哪天做：不早于、也不晚于这一天
-      { type: 'add_task', title, due: date, notBefore: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost },
+      // 名字里写了 DDL / 截止的：这天是截止日，不是「这天做」
+      /ddl|deadline|截止/i.test(title)
+        ? { type: 'add_task', title, due: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost }
+        : { type: 'add_task', title, due: date, notBefore: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost },
     ]);
     if (!changes[0]?.ok) return;
     setAddHint(
