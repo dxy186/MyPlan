@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 
 
 import { addDays, todayStr, weekdayOf } from '@/app/utils/planning';
 import { EVENTS_CHANGED_EVENT, ImportantEvent, addEvent, deleteEvent, eventsOn, loadEvents, looksYearly, updateEvent, yearsSince } from '@/components/data/events';
+import { applyActions, commitState, loadPlanState } from '@/components/assistant/plan-store';
 import { confirmAsync } from '@/components/ui/confirm';
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -70,6 +71,16 @@ export default function EventsPanel() {
     reset();
   };
 
+  /** 记错成重要事件的 DDL：改成任务（截止日 = 这天），并删掉这个事件 */
+  const toTask = async (e: ImportantEvent) => {
+    const st = await loadPlanState();
+    const { next, changes } = applyActions(st, [{ type: 'add_task', title: e.title, due: e.date, estimateMin: 30, energyCost: 'medium' }]);
+    if (!changes[0]?.ok) return setMsg('❌ ' + (changes[0]?.summary || '没改成'));
+    await commitState(next);
+    await deleteEvent(e.id);
+    setMsg(`✅ 「${e.title}」已改成 ${e.date.slice(5)} 截止的 DDL 任务`);
+  };
+
   const Row = ({ d, e }: { d: string; e: ImportantEvent }) => {
     const days = Math.round((new Date(d + 'T12:00:00').getTime() - new Date(todayStr() + 'T12:00:00').getTime()) / 86400000);
     return (
@@ -94,6 +105,11 @@ export default function EventsPanel() {
         >
           <Text style={styles.link}>编辑</Text>
         </TouchableOpacity>
+        {!e.yearly && (
+          <TouchableOpacity onPress={() => toTask(e)}>
+            <Text style={styles.link}>改成 DDL 任务</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={async () => {
             if (await confirmAsync(`删除重要事件「${e.title}」${e.yearly ? '（每年的都会删掉）' : ''}？`)) deleteEvent(e.id);
