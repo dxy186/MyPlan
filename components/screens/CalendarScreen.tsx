@@ -35,6 +35,7 @@ import { allTasks } from '@/components/assistant/plan-store';
 
 import CalendarTopBar, { SCHEDULE_UPDATED_EVENT } from './CalendarTopBar';
 import HabitStrip from './HabitStrip';
+import { EVENTS_CHANGED_EVENT, ImportantEvent, addEvent, deleteEvent, eventsOn, loadEvents, yearsSince } from '@/components/data/events';
 import QuickSyntaxGuide from '@/components/data/QuickSyntaxGuide';
 import { PriDot } from '@/components/data/priority';
 import { OPEN_TODAY_MODAL_EVENT, takePendingOpenToday } from '@/components/assistant/nav-bridge';
@@ -88,6 +89,15 @@ function isLastInStatus(list: CalendarItem[], index: number): boolean {
 // ---------- 主组件 ----------
 function CalendarMain() {
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
+  // ⭐ 重要事件（生日、考试日、出发…）
+  const [events, setEvents] = useState<ImportantEvent[]>([]);
+  useEffect(() => {
+    const load = () => loadEvents().then(setEvents);
+    load();
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    window.addEventListener(EVENTS_CHANGED_EVENT, load);
+    return () => window.removeEventListener(EVENTS_CHANGED_EVENT, load);
+  }, []);
   // 任务 id → 截止日（给自动排进来的任务显示「x 号截止」）
   const [scheduledDue, setScheduledDue] = useState<Map<string, string>>(new Map());
   const [itemStyles, setItemStyles] = useState<Record<string, CalendarStyle>>({});
@@ -391,6 +401,11 @@ function CalendarMain() {
     const parsed = quickParse(addText);
     const date = currentEditDate;
     setAddText('');
+    if (parsed.kind === 'event') {
+      await addEvent({ date, title: parsed.title, yearly: parsed.yearly, time: parsed.time });
+      setAddHint(`⭐ 已记为重要事件：${parsed.time ? parsed.time + ' ' : ''}${parsed.title}${parsed.yearly ? '（每年这天都会显示）' : ''}`);
+      return;
+    }
     const st = await loadPlanState();
     if (parsed.kind === 'fixed') {
       // 「15:00-17:00 开组会」→ 这天的固定日程；「每周二、四 8:00-10:00 高数课」→ 每周重复
@@ -551,16 +566,17 @@ function CalendarMain() {
     const isToday = dateStr === todayStr;
     const itemsToday = sortItems(calendarItems.filter(ci => ci.date === dateStr));
     // 没做完的、固定日程、自动排的在前；划掉的（做完的）沉到最后，格子放不下时先省略它们
-    const itemLines = itemsToday.filter(i => !i.completed).slice(0, 5);
+    const eventLines = eventsOn(events, dateStr).slice(0, 2);
+    const itemLines = itemsToday.filter(i => !i.completed).slice(0, 5 - eventLines.length);
     // 固定日程（每天的课、会）不在格子里显示，点开这一天的弹窗里还能看到
     const fixedLines: ReturnType<typeof fixedFor> = [];
     const autoLines = scheduledFor(dateStr, new Set(itemsToday.map(i => i.id))).slice(
       0,
-      Math.max(0, 5 - itemLines.length - fixedLines.length)
+      Math.max(0, 5 - eventLines.length - itemLines.length - fixedLines.length)
     );
     const doneLines = itemsToday
       .filter(i => i.completed)
-      .slice(0, Math.max(0, 5 - itemLines.length - fixedLines.length - autoLines.length));
+      .slice(0, Math.max(0, 5 - eventLines.length - itemLines.length - fixedLines.length - autoLines.length));
 
     const currentMonthPrefix = currentMonth.slice(0, 7);
     const dateMonthPrefix = dateStr.slice(0, 7);
@@ -615,6 +631,15 @@ function CalendarMain() {
         </View>
         <Text style={[styles.lunarText, { color: lunarColor }]}>{lunarStr}</Text>
         <View style={{ width: '100%', alignItems: 'flex-start' }}>
+          {eventLines.map(ev => (
+            <Text
+              key={`ev-${ev.id}`}
+              numberOfLines={1}
+              style={[styles.itemText, { color: '#8E24AA', fontWeight: '700', opacity: isCurrentMonth ? 1 : 0.5 }]}
+            >
+              ⭐ {ev.title}
+            </Text>
+          ))}
           {itemLines.map(item => (
             <Text
               key={item.id}
@@ -815,6 +840,31 @@ function CalendarMain() {
                       </TouchableOpacity>
                     );
                   })()}
+                {eventsOn(events, currentEditDate).length > 0 && (
+                  <View style={{ marginBottom: 6 }}>
+                    <Text style={styles.sectionTitle}>⭐ 重要事件</Text>
+                    {eventsOn(events, currentEditDate).map(ev => (
+                      <View key={ev.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                        <Text style={{ flex: 1, fontSize: 15, color: '#6A1B9A', fontWeight: '600' }}>
+                          {ev.time ? `${ev.time}　` : ''}⭐ {ev.title}
+                          {ev.yearly ? (
+                            <Text style={{ fontSize: 12, color: '#9575CD', fontWeight: '400' }}>
+                              {'　'}每年{yearsSince(ev, currentEditDate) > 0 ? ` · 第 ${yearsSince(ev, currentEditDate)} 年` : ''}
+                            </Text>
+                          ) : null}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            if (await confirmAsync(`删除重要事件「${ev.title}」${ev.yearly ? '（每年的都会删掉）' : ''}？`)) deleteEvent(ev.id);
+                          }}
+                          style={{ paddingHorizontal: 6 }}
+                        >
+                          <Text style={{ color: '#E53935', fontSize: 16 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 <Text style={styles.sectionTitle}>📝 这天的事项</Text>
                 <ScrollView style={styles.noteList}>
                   {dayEntries.length === 0 ? (
@@ -1040,7 +1090,7 @@ function CalendarMain() {
                 <View style={styles.addContainer}>
                   <View style={styles.addRow}>
                     <TextInput
-                      placeholder="添加：写报告 2小时 / !复习 90分钟 / ?写论文（AI 帮拆）/ 15:00-17:00 开组会 / 每周二 8:00-10:00 上课"
+                      placeholder="添加：写报告 2小时 / !复习 90分钟 / ?写论文（AI 帮拆）/ 15:00-17:00 开组会 / *妈妈生日（重要事件）"
                       value={addText}
                       style={[styles.addInput, { flex: 1 }]}
                       onChangeText={setAddText}

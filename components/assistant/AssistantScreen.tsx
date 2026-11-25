@@ -37,6 +37,7 @@ import {
 import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
 import { appendDiaryText } from '@/components/data/diary';
+import { addEvent, eventsOn, loadEvents, looksYearly } from '@/components/data/events';
 import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
@@ -420,7 +421,13 @@ export default function AssistantScreen() {
       const fresh = await loadPlanState();
       setState(fresh);
       const insights = buildInsights(fresh.timeLogs, fresh.goals, await loadBlockLog(), reasonSummary(await loadReviews()));
-      const context = buildContext(fresh, schedule, new Date(), habitsForAi(insights, fresh.memories ?? []));
+      const evs = await loadEvents();
+      const today0 = todayStr();
+      const upcoming = Array.from({ length: 30 }, (_, k) => addDays(today0, k))
+        .flatMap(d => eventsOn(evs, d).map(e => `${d}${e.time ? ' ' + e.time : ''} ${e.title}${e.yearly ? '（每年）' : ''}`));
+      const context =
+        buildContext(fresh, schedule, new Date(), habitsForAi(insights, fresh.memories ?? [])) +
+        (upcoming.length ? `\n\n## 接下来 30 天的重要事件（只是标记，不是任务）\n${upcoming.join('\n')}` : '');
       const pendingNote = carried.length
         ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
         : '';
@@ -503,6 +510,9 @@ export default function AssistantScreen() {
     try {
       const sch = await commitState(preview.next);
       for (const a of preview.chosen) {
+        if (a.type === 'add_event' && String(a.title || '').trim() && /^\d{4}-\d{2}-\d{2}$/.test(String(a.date))) {
+          await addEvent({ date: String(a.date), title: String(a.title), yearly: !!a.yearly || looksYearly(String(a.title)), time: a.time ? String(a.time) : undefined });
+        }
         if (a.type === 'add_diary' && String(a.text || '').trim()) {
           await appendDiaryText(/^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? String(a.date) : todayStr(), String(a.text));
         }

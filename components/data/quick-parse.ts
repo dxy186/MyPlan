@@ -7,12 +7,15 @@
  *   每周二、四 8:00-10:00 高数课 → 每周重复的固定日程
  *   取快递              → 普通小任务（30 分钟、低耗能）
  *   ?写期末论文          → 开头加 ? ：加进去后马上让 AI 帮你拆成小步骤
+ *   *妈妈生日           → 开头加 * ：重要事件（只在日历上标出来，不当任务）；生日、纪念日自动每年重复
+ *   *每年 结婚纪念日      → 每年重复；「*14:00 面试」可以带个时间
  */
 import { EnergyCost } from '@/app/utils/planning';
 
 export type QuickParsed =
   | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean; breakdown?: boolean }
-  | { kind: 'fixed'; title: string; start: string; end: string; weekdays?: number[] };
+  | { kind: 'fixed'; title: string; start: string; end: string; weekdays?: number[] }
+  | { kind: 'event'; title: string; yearly: boolean; time?: string };
 
 const WD: Record<string, number> = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
 
@@ -73,6 +76,23 @@ export function parseDuration(text: string): { minutes: number; rest: string } |
 
 export function quickParse(input: string): QuickParsed {
   let text = input.trim();
+  // * / ★ / ☆ 开头：重要事件
+  if (/^[*＊★☆⭐]/.test(text)) {
+    let t = text.replace(/^[*＊★☆⭐]+\s*/, '');
+    let yearly = false;
+    if (/^每年\s*/.test(t)) {
+      yearly = true;
+      t = t.replace(/^每年\s*/, '');
+    }
+    let time: string | undefined;
+    const tm = t.match(/^(\d{1,2})[:：](\d{2})\s*/);
+    if (tm) {
+      time = `${tm[1].padStart(2, '0')}:${tm[2]}`;
+      t = t.slice(tm[0].length);
+    }
+    const title = t.trim() || '重要的日子';
+    return { kind: 'event', title, yearly: yearly || /生日|纪念日|周年|忌日/.test(title), time };
+  }
   let high = false;
   let breakdown = false;
   // 开头的 ? / ! 顺序随意，可以叠着写（?! 或 !?）
