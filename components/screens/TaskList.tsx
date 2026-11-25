@@ -22,6 +22,7 @@ import { ScheduleResult } from '@/app/utils/scheduler';
 import { DATA_CHANGED_EVENT, openBreakdown } from '@/components/assistant/breakdown';
 import { startTaskTimer } from '@/components/assistant/gap';
 import {
+  isDeadlineOnly,
   AssistantAction,
   DAILY_GOAL_ID,
   PlanState,
@@ -773,6 +774,7 @@ export default function TaskList() {
                                   ? ` · ${t.notBefore === today ? '今天' : t.notBefore.slice(5)}${t.startMin !== undefined ? ` ${minutesToHM(t.startMin)}` : ''} 开始`
                                   : ''}
                                 {!t.done && first ? ` · 排在 ${first === today ? '今天' : first.slice(5)}` : ''}
+                                {!t.done && isDeadlineOnly(t) ? ' · 📌 DDL，不自动排程（要留时间就 🧩 拆分或设开始）' : ''}
                                 {t.done && t.doneAt ? ` · ${t.doneAt.slice(5, 10)} 完成` : ''}
                               </>
                             )}
