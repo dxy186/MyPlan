@@ -19,6 +19,7 @@ import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
 import { BlockRecord } from './habits';
 import { PlanState, allTasks, spentByTask } from './plan-store';
+import { eventsOn, loadEvents } from '@/components/data/events';
 
 export function minuteNow(d = new Date()) {
   return d.getHours() * 60 + d.getMinutes();
@@ -291,7 +292,9 @@ export function dueReminders(
   reviewedToday: boolean,
   now = new Date(),
   /** 正在计时的任务：已经开始做了，就不再提醒它「该开始了」 */
-  runningTaskId?: string
+  runningTaskId?: string,
+  /** 今天的重要事件（早上提醒里顺便说一下） */
+  todayEvents: string[] = []
 ): { key: string; title: string; body: string; target?: OpenTarget; taskId?: string }[] {
   const today = todayStr();
   const cur = minuteNow(now);
@@ -329,7 +332,9 @@ export function dueReminders(
       out.push({
         key: mk,
         title: n ? `☀️ 今天有 ${n} 件事` : '☀️ 早上好，看看今天的安排',
-        body: todays[0] ? `第一件 ${minutesToHM(todays[0].startMin)} ${todays[0].title}。点开看今天的日历。` : '今天还没有排任务，点开在日历里记一下要做什么。',
+        body:
+          (todayEvents.length ? `今天：⭐ ${todayEvents.join('、')}。` : '') +
+          (todays[0] ? `第一件 ${minutesToHM(todays[0].startMin)} ${todays[0].title}。点开看今天的日历。` : '今天还没有排任务，点开在日历里记一下要做什么。'),
         target: 'today',
       });
     }
@@ -358,7 +363,8 @@ export async function reminderTick(sent: Set<string>, now = new Date()) {
   const reviewedToday = reviews.some(r => r.date === todayStr());
   const timer = await loadJSON<{ taskId?: string } | null>('@myplan__gap_timer', null);
   if (settings.enabled) {
-    for (const r of dueReminders(schedule, settings, sent, reviewedToday, now, timer?.taskId)) {
+    const evs = eventsOn(await loadEvents(), todayStr()).map(e => (e.time ? `${e.time} ${e.title}` : e.title));
+    for (const r of dueReminders(schedule, settings, sent, reviewedToday, now, timer?.taskId, evs)) {
       const system = notify(r.title, r.body, r.key, r.target);
       // 系统通知不可用（比如在 Claude 内置浏览器里）时，用页面内提醒兜底
       if (typeof window !== 'undefined') {

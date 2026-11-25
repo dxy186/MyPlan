@@ -11,6 +11,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import InboxPanel from '@/components/secretary/InboxPanel';
 import SubTabBar from '@/components/secretary/SubTabBar';
 
+import EventsPanel from './EventsPanel';
 import FixedPanel from './FixedPanel';
 import TaskList from './TaskList';
 import WoopPanel from './WoopPanel';
@@ -18,6 +19,7 @@ import WoopPanel from './WoopPanel';
 const TABS = [
   { key: 'list', label: '📋 全部任务' },
   { key: 'fixed', label: '📌 固定日程' },
+  { key: 'events', label: '⭐ 重要事件' },
   { key: 'inbox', label: '📥 导入 · 任务池' },
   { key: 'woop', label: '🧭 WOOP' },
 ];
@@ -29,7 +31,7 @@ export default function TasksScreen() {
       <Text style={styles.title}>📋 任务</Text>
       <SubTabBar tabs={TABS} active={tab} onChange={setTab} />
       <View style={{ flex: 1 }}>
-        {tab === 'list' ? <TaskList /> : tab === 'fixed' ? <FixedPanel /> : tab === 'inbox' ? <InboxPanel /> : <WoopPanel />}
+        {tab === 'list' ? <TaskList /> : tab === 'fixed' ? <FixedPanel /> : tab === 'events' ? <EventsPanel /> : tab === 'inbox' ? <InboxPanel /> : <WoopPanel />}
       </View>
     </View>
   );
