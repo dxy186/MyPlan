@@ -427,7 +427,7 @@ export default function AssistantScreen() {
         .flatMap(d => eventsOn(evs, d).map(e => `${d}${e.time ? ' ' + e.time : ''} ${e.title}${e.yearly ? '（每年）' : ''}`));
       const context =
         buildContext(fresh, schedule, new Date(), habitsForAi(insights, fresh.memories ?? [])) +
-        (upcoming.length ? `\n\n## 接下来 30 天的重要事件（只是标记，不是任务）\n${upcoming.join('\n')}` : '');
+        `\n\n## 接下来 30 天的重要事件（只是标记，不是任务）\n${upcoming.length ? upcoming.join('\n') : '（没有）'}`;
       const pendingNote = carried.length
         ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
         : '';
