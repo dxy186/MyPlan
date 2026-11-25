@@ -240,6 +240,17 @@ export type AssistantAction =
   | { type: 'complete_task'; taskId: string }
   | { type: 'delete_task'; taskId: string }
   | {
+      type: 'add_subtask';
+      /** 父任务 id：还没拆过的任务会变成父任务 */
+      parentId: string;
+      title: string;
+      estimateMin?: number;
+      energyCost?: EnergyCost;
+      /** 这一步哪天做（可省略） */
+      date?: string;
+      startTime?: string;
+    }
+  | {
       type: 'add_fixed_event';
       title: string;
       date?: string;
@@ -549,12 +560,95 @@ export function applyActions(
           changes.push({ action: a, ok: true, summary: `✅ 完成「${ref.task.title}」` });
           break;
         }
+        case 'add_subtask': {
+          const ref = find(a.parentId);
+          if (!ref) throw new Error('找不到父任务');
+          if (ref.task.parentId) throw new Error('子任务下面不能再加子任务');
+          const title = String(a.title || '').trim();
+          if (!title) throw new Error('缺少子任务名');
+          const est = Math.max(5, Math.min(480, Math.round(Number(a.estimateMin) || 30)));
+          const cost: EnergyCost = (['high', 'medium', 'low'] as EnergyCost[]).includes(a.energyCost as EnergyCost)
+            ? (a.energyCost as EnergyCost)
+            : ref.task.energyCost || 'medium';
+          const date = safeDate(a.date);
+          const sm = a.startTime ? parseHM(String(a.startTime)) : undefined;
+          const parent = ref.task;
+          let child: PlanTask;
+          if (!parent.split) {
+            // 第一次手动加子任务：原任务变成父任务，这一步是它的第一个子任务
+            child = splitTaskInGoals(next.goals, parent.id, [{ title, estimateMin: est, energyCost: cost, date: date || todayStr() }])[0];
+          } else {
+            const kids = allTasks(next.goals).filter(r => r.task.parentId === parent.id).map(r => r.task);
+            const last = kids[kids.length - 1];
+            child = {
+              id: randomId(),
+              title,
+              estimateMin: est,
+              energyCost: cost,
+              notBefore: last?.notBefore,
+              deps: last ? [last.id] : [...parent.deps],
+              done: false,
+              createdAt: new Date().toISOString(),
+              parentId: parent.id,
+            };
+            // 原来排在最后一步之后的任务，改成排在新的这步之后
+            if (last) {
+              for (const r of allTasks(next.goals)) {
+                if (r.task.parentId !== parent.id && r.task.deps.includes(last.id)) {
+                  r.task.deps = r.task.deps.map(d => (d === last.id ? child.id : d));
+                }
+              }
+            }
+            const m = ref.goal.milestones[ref.milestoneIdx];
+            const lastIdx = Math.max(m.tasks.findIndex(t => t.id === parent.id), ...kids.map(k => m.tasks.findIndex(t => t.id === k.id)));
+            m.tasks.splice(lastIdx + 1, 0, child);
+            parent.estimateMin = kids.reduce((k, t) => k + t.estimateMin, 0) + est;
+            if (parent.done) {
+              parent.done = false;
+              delete parent.doneAt;
+            }
+          }
+          if (date) child.notBefore = date;
+          if (sm !== undefined && child.notBefore) child.startMin = sm;
+          else if (date) delete child.startMin;
+          changes.push({
+            action: a,
+            ok: true,
+            summary: `➕ 给「${parent.title}」加了子任务「${title}」（${est} 分钟${date ? `，${date.slice(5)} 起` : ''}）`,
+          });
+          break;
+        }
         case 'delete_task': {
           const ref = find(a.taskId);
           if (!ref) throw new Error('找不到这个任务');
           const m = ref.goal.milestones[ref.milestoneIdx];
           const kill = new Set([ref.task.id, ...descendantIds(next.goals, ref.task.id)]);
           m.tasks = m.tasks.filter(t => !kill.has(t.id));
+          // 删掉链条中间的一步：后面依赖它的，改成依赖它前面的那步，顺序不断
+          const parentRef = ref.task.parentId ? find(ref.task.parentId) : undefined;
+          const lastChild = !!parentRef && !allTasks(next.goals).some(r => r.task.parentId === parentRef.task.id);
+          // 子任务全删光了：原来接在它后面的任务改回接在父任务后面
+          const inherit = lastChild ? [parentRef!.task.id] : ref.task.deps.filter(d => !kill.has(d));
+          for (const r of allTasks(next.goals)) {
+            if (r.task.deps.some(d => kill.has(d))) {
+              r.task.deps = [...new Set([...r.task.deps.filter(d => !kill.has(d)), ...inherit])];
+            }
+          }
+          // 删的是子任务：父任务的总时长跟着变；子任务删光了，父任务变回普通任务
+          const parent = parentRef;
+          if (parent) {
+            const left = allTasks(next.goals).filter(r => r.task.parentId === parent.task.id).map(r => r.task);
+            if (left.length === 0) {
+              delete parent.task.split;
+              parent.task.estimateMin = Math.max(5, ref.task.estimateMin);
+            } else {
+              parent.task.estimateMin = left.reduce((k, t) => k + t.estimateMin, 0);
+              if (left.every(t => t.done) && !parent.task.done) {
+                parent.task.done = true;
+                parent.task.doneAt = new Date().toISOString();
+              }
+            }
+          }
           changes.push({ action: a, ok: true, summary: `🗑️ 删除「${ref.task.title}」` });
           break;
         }
@@ -881,6 +975,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 - {"type":"add_diary","text":"要写进日记的内容","date":"YYYY-MM-DD（默认今天，用户说了哪天才填）"}
 - {"type":"complete_task","taskId":"已有任务 id"}
 - {"type":"delete_task","taskId":"已有任务 id"}
+- {"type":"add_subtask","parentId":"已有任务 id","title":"新的一步","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD（可省略）"}  （给已有任务加一个子任务，加在最后一步后面；还没拆过的任务会变成父任务。删子任务用 delete_task）
 - {"type":"add_fixed_event","title":"名称","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","kind":"course|meeting|ticket|other"}  （每周重复的用 "weekday":0-6 代替 date，0 是周日）
 - {"type":"delete_fixed_event","eventId":"已有固定日程 id"}
 - {"type":"remember","text":"一句话的长期偏好，如：周末上午不安排学习"}

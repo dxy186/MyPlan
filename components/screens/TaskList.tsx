@@ -177,6 +177,53 @@ function StartPicker({ date, time, onDate, onTime }: { date: string; time: strin
   );
 }
 
+/** 手动加一个子任务：名字 + 分钟 + 可选哪天做 */
+function AddSubtaskRow({ indent, first, onAdd }: { indent: number; first: boolean; onAdd: (a: { title: string; min: number; date?: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [min, setMin] = useState('30');
+  const [date, setDate] = useState('');
+  const dateOk = normDate(date) !== null;
+  const submit = () => {
+    if (!title.trim() || !dateOk) return;
+    onAdd({ title: title.trim(), min: Number(min) || 30, date: normDate(date) || undefined });
+    setTitle('');
+    setDate('');
+  };
+  if (!open)
+    return (
+      <TouchableOpacity onPress={() => setOpen(true)} style={{ marginLeft: indent, paddingVertical: 6 }}>
+        <Text style={styles.link}>{first ? '＋ 手动拆成子任务' : '＋ 加子任务'}</Text>
+      </TouchableOpacity>
+    );
+  return (
+    <View style={[styles.row, { marginLeft: indent, marginTop: 4 }]}>
+      <TextInput
+        style={[styles.input, { flex: 1, minWidth: 160 }]}
+        placeholder={first ? '第一步做什么（原任务会变成父任务）' : '新的一步做什么'}
+        value={title}
+        onChangeText={setTitle}
+        onSubmitEditing={submit}
+        autoFocus
+      />
+      <TextInput style={[styles.input, styles.small]} value={min} onChangeText={setMin} keyboardType="numeric" placeholder="分钟" />
+      <Text style={styles.lbl}>分钟</Text>
+      <TextInput
+        style={[styles.input, styles.dateInput, !dateOk && styles.inputBad]}
+        value={date}
+        onChangeText={setDate}
+        placeholder="哪天做（可空，如 12/3）"
+      />
+      <TouchableOpacity style={[styles.chip, styles.chipBlue, !title.trim() && { opacity: 0.5 }]} onPress={submit} disabled={!title.trim()}>
+        <Text style={[styles.chipText, styles.chipTextOn]}>添加</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => setOpen(false)}>
+        <Text style={styles.lbl}>取消</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function TaskEditor({
   task,
   onSave,
@@ -365,6 +412,9 @@ export default function TaskList() {
       setEditing(null);
       return changes[0].summary;
     });
+
+  const addSub = (parentId: string, x: { title: string; min: number; date?: string }) =>
+    runAction({ type: 'add_subtask', parentId, title: x.title, estimateMin: x.min, date: x.date });
 
   const toggleDone = (task: PlanTask, goal: Goal) =>
     mutate(s => {
@@ -814,6 +864,14 @@ export default function TaskList() {
                             <Text style={[styles.tagPillText, t.tag ? { color: tagColor(tags, t.tag) } : null]}>{t.tag ? `🏷 ${t.tag}` : '＋ 分类'}</Text>
                           </TouchableOpacity>
                         )}
+                        {depth > 0 && (
+                          <TouchableOpacity
+                            style={styles.play}
+                            onPress={() => confirmBox(`删除子任务「${t.title}」？`).then(ok => ok && runAction({ type: 'delete_task', taskId: t.id }))}
+                          >
+                            <Text style={[styles.playText, { color: '#E53935' }]}>✕</Text>
+                          </TouchableOpacity>
+                        )}
                         {!t.done && (
                           <TouchableOpacity style={styles.play} onPress={() => openBreakdown(t.id)}>
                             <Text style={styles.playText}>🧩</Text>
@@ -899,7 +957,11 @@ export default function TaskList() {
                           }}
                         />
                       )}
+                      {editing === t.id && depth === 0 && !t.split && !t.done && (
+                        <AddSubtaskRow indent={36} first onAdd={x => addSub(t.id, x)} />
+                      )}
                       {t.split && !folded && kids.map(k => renderTask(k, depth + 1))}
+                      {t.split && !folded && !t.done && depth === 0 && <AddSubtaskRow indent={26 + 24} first={false} onAdd={x => addSub(t.id, x)} />}
                     </View>
                   );
                 };
