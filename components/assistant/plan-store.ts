@@ -227,6 +227,9 @@ export type AssistantAction =
       taskId?: string;
       title?: string;
       due?: string;
+      /** 从哪天开始做（第一步不早于这天） */
+      notBefore?: string;
+      startTime?: string;
       tag?: string;
       quadrant?: Quadrant;
       goal?: string;
@@ -482,6 +485,8 @@ export function applyActions(
               estimateMin: steps.reduce((k, x) => k + x.estimateMin, 0),
               energyCost: 'medium',
               due: safeDate(a.due),
+              notBefore: safeDate(a.notBefore),
+              startMin: safeDate(a.notBefore) ? parseHM(a.startTime) : undefined,
               tag: a.tag && String(a.tag).trim() ? String(a.tag).trim().slice(0, 12) : undefined,
               quadrant: QUADS.includes(a.quadrant as Quadrant) ? (a.quadrant as Quadrant) : undefined,
               deps: [],
@@ -490,6 +495,11 @@ export function applyActions(
             });
           }
           const parent = find(id)!.task;
+          // 拆已有任务时也可以顺便设开始日期（「12/8 开始做」）
+          if (a.taskId && safeDate(a.notBefore)) {
+            parent.notBefore = safeDate(a.notBefore);
+            if (a.startTime !== undefined) parent.startMin = parseHM(a.startTime);
+          }
           splitTaskInGoals(next.goals, id, steps);
           changes.push({
             action: a,
@@ -854,7 +864,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
 可用操作：
 - {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","quadrant":"important_urgent|not_important_urgent|important_not_urgent|not_important_not_urgent（用户说了重要/紧急才填）","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
 - {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null","quadrant":"四象限 或 null"}  （只写要改的字段）
-- {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
+- {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","notBefore":"YYYY-MM-DD 从哪天开始做（用户说了才填）","startTime":"HH:MM（可省略）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
 - {"type":"add_event","title":"妈妈生日","date":"YYYY-MM-DD","yearly":true,"time":"HH:MM（可省略）"}  （重要事件：只在日历上标出来）
 - {"type":"add_diary","text":"要写进日记的内容","date":"YYYY-MM-DD（默认今天，用户说了哪天才填）"}
 - {"type":"complete_task","taskId":"已有任务 id"}
@@ -876,6 +886,7 @@ export const SYSTEM_PROMPT = `你是用户的私人计划秘书和效率教练�
    - 「周五写报告」「明天去取快递」「下周一复习」「25 号整理笔记」= 指定那天做 → notBefore 和 due 都填那一天。
    - 「周五前交报告」「月底截止」「XX DDL」= 截止日 → 只填 due。注意：只有截止日、没拆分的任务（DDL）不会被自动排进日程，只在日历上红字提醒。
    - 截止前确实需要花时间做的（写报告、复习考试、做项目）：用 split_task 拆成步骤（子任务会在截止前自动排时间）；或者用户说了哪天开始，就填 notBefore。考试这类 due 填考试前一天。
+   - 「12/13 截止，12/8 开始做」= 开始 + 截止都有 → notBefore 填 12/8、due 填 12/13。要拆的话 split_task 同时填 notBefore 和 due（第一步的 date 也写 12/8），所有步骤都会从 12/8 起排、12/13 前做完；不拆就 add_task 填这两个字段。
    - 拿不准时按「那天做」处理，并在 reply 里说明你是怎么理解的。
 8. 信息不够、无法安排时，actions 留空，在 reply 里问一个最关键的问题。
 8.1 用户只是提问、不需要改数据时，actions 留空。让你拆解目标或任务时，用 split_task（已有任务填 taskId，新的填 title），不要用一串 add_task，在 reply 里讲清拆解思路。
