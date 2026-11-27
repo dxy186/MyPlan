@@ -1,13 +1,11 @@
 /**
  * 板块六：执行支持与时间记录（一键计时 + 琐事一键套用 + 实际vs预估）
- * 板块九：碎片时间与生活琐事管理（碎片时间日志 / 微休息）
  *
  * 功能：
  *  - 一键计时：选一个目标库任务，点开始 / 完成，自动生成时间记录
  *  - 生活琐事一键套用（来自生活琐事标准时间库）
- *  - 碎片时间记录：微输入 / 微整理 / 微恢复 / 微充电 / 刷手机
  *  - 实际 vs 预估对比，算出个人速率系数（规划谬误修正）
- *  - 今日统计与碎片时间周报
+ *  - 今日统计
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -21,11 +19,8 @@ import {
 
 import {
   DEFAULT_CHORES,
-  EnergyLog,
-  FRAGMENT_TYPES,
   Goal,
   KEYS,
-  PlanTask,
   TimeLog,
   calibrateEstimate,
   loadJSON,
@@ -33,7 +28,6 @@ import {
   saveJSON,
   speedFactor,
   speedSamples,
-  suggestFragment,
   todayStr,
 } from '@/app/utils/planning';
 import { commitState, loadPlanState } from '@/components/assistant/plan-store';
@@ -66,7 +60,6 @@ function fmtDuration(min: number): string {
 export default function TimeLogPanel() {
   const [logs, setLogs] = useState<TimeLog[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [energyLogs, setEnergyLogs] = useState<EnergyLog[]>([]);
   const [chores, setChores] = useState<{ title: string; minutes: number }[]>(DEFAULT_CHORES);
   const [message, setMessage] = useState('');
   // 手动速率系数：undefined = 自动
@@ -74,15 +67,11 @@ export default function TimeLogPanel() {
   const [overrideText, setOverrideText] = useState('');
   const [speedMsg, setSpeedMsg] = useState('');
 
-  // 碎片时间
-  const [fragType, setFragType] = useState<(typeof FRAGMENT_TYPES)[number]>('微恢复');
-  const [fragMinutes, setFragMinutes] = useState('10');
 
   useEffect(() => {
     (async () => {
       setLogs(await loadJSON<TimeLog[]>(KEYS.timeLogs, []));
       setGoals((await loadPlanState()).goals);
-      setEnergyLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
       const savedChores = await loadJSON<{ title: string; minutes: number }[]>(KEYS.choreTemplates, []);
       setChores(savedChores.length > 0 ? savedChores : DEFAULT_CHORES);
       const ss = await loadScheduleSettings();
@@ -91,12 +80,6 @@ export default function TimeLogPanel() {
     })();
   }, []);
 
-
-  const pendingTasks = useMemo(() => {
-    const out: PlanTask[] = [];
-    for (const g of goals) for (const m of g.milestones) for (const t of m.tasks) if (!t.done) out.push(t);
-    return out;
-  }, [goals]);
 
 
   const persist = async (next: TimeLog[]) => {
@@ -143,20 +126,6 @@ export default function TimeLogPanel() {
     return m;
   }, [todayLogs]);
 
-  const weekFragmentStats = useMemo(() => {
-    const since = new Date();
-    since.setDate(since.getDate() - 7);
-    const frags = logs.filter(
-      l => l.category === '碎片时间' && new Date(l.startAt).getTime() >= since.getTime()
-    );
-    const m: Record<string, number> = {};
-    for (const f of frags) {
-      const k = f.fragmentType ?? '未分类';
-      m[k] = (m[k] ?? 0) + f.minutes;
-    }
-    return m;
-  }, [logs]);
-
   // ---------- 生活琐事 ----------
   const logChore = async (title: string, minutes: number) => {
     const end = new Date();
@@ -174,40 +143,11 @@ export default function TimeLogPanel() {
     setMessage(`已记下「${title} ${minutes}min」`);
   };
 
-  // ---------- 碎片时间 ----------
-  const logFragment = async () => {
-    const minutes = Math.max(1, Number(fragMinutes) || 10);
-    const end = new Date();
-    const start = new Date(end.getTime() - minutes * 60000);
-    const log: TimeLog = {
-      id: randomId(),
-      title: `碎片时间 · ${fragType}`,
-      category: '碎片时间',
-      fragmentType: fragType,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
-      minutes,
-      createdAt: isoNow(),
-    };
-    const next = [log, ...logs];
-    await persist(next);
-    await persistFragment(next);
-    setMessage(`碎片时间已记录：${fragType} ${minutes}min`);
-  };
-
   const removeLog = async (id: string) => {
     const next = logs.filter(l => l.id !== id);
     await persist(next);
     await persistFragment(next);
   };
-
-  // ---------- 展示 ----------
-  const latestEnergy = useMemo(
-    () => [...energyLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0],
-    [energyLogs]
-  );
-  const nextTaskIsHigh = pendingTasks.some(t => t.energyCost === 'high');
-  const fragmentTip = suggestFragment(latestEnergy?.score ?? 6, nextTaskIsHigh);
 
   const calibrateDemo = calibrateEstimate(60, factor);
 
@@ -215,7 +155,7 @@ export default function TimeLogPanel() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.header}>⏱ 时间记录</Text>
       <Text style={styles.lead}>
-        记录实际耗时，才能校准预估。低门槛：一键计时、一键套用琐事，或只记一段碎片时间。
+        记录实际耗时，才能校准预估。低门槛：一键计时，或一键套用琐事。
       </Text>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -238,37 +178,6 @@ export default function TimeLogPanel() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
-
-      {/* 碎片时间 */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>碎片时间日志</Text>
-        <Text style={styles.tip}>💡 现在推荐：{fragmentTip}</Text>
-        <Text style={styles.label}>类型</Text>
-        <View style={styles.chipWrap}>
-          {FRAGMENT_TYPES.map(t => (
-            <TouchableOpacity key={t} style={[styles.chip, fragType === t && styles.chipActive]} onPress={() => setFragType(t)}>
-              <Text style={[styles.chipText, fragType === t && styles.chipTextActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={styles.rowBetween}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>分钟</Text>
-            <TextInput style={styles.input} value={fragMinutes} onChangeText={setFragMinutes} keyboardType="number-pad" />
-          </View>
-          <TouchableOpacity style={[styles.secondaryBtn, { flex: 2, marginTop: 26 }]} onPress={logFragment}>
-            <Text style={styles.secondaryBtnText}>记录这笔碎片时间</Text>
-          </TouchableOpacity>
-        </View>
-        {Object.keys(weekFragmentStats).length > 0 ? (
-          <Text style={styles.tip}>
-            近 7 天碎片时间：
-            {Object.entries(weekFragmentStats).map(([k, v]) => `${k} ${v}min`).join(' · ')}
-          </Text>
-        ) : (
-          <Text style={styles.empty}>近 7 天还没有碎片时间记录。</Text>
-        )}
       </View>
 
       {/* 速率校准 */}
