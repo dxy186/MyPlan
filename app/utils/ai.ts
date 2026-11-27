@@ -135,6 +135,9 @@ export function parseLooseJSON<T>(text: string): T | null {
  * 1) 要求 JSON 输出模式（不支持的话自动退回普通模式）；2) 宽松解析；
  * 3) 还不行就让模型把自己的回答「改写成 JSON」再试一次；4) 实在不行抛 AiFormatError（带原文）。
  */
+/** 最近一次 callChatJSON 的模型原文（解析出来没有内容时，调用方可以拿它兜底显示） */
+export let lastJSONRaw = '';
+
 export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: string; extra?: Record<string, unknown> }): Promise<T> {
   const base = { temperature: 0.3, maxTokens: 6000, model: opts?.model };
   let text: string;
@@ -144,6 +147,7 @@ export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: 
     if (!/response_format|json_object|json mode/i.test(String(e?.message))) throw e;
     text = await callChat(messages, { ...base, extra: opts?.extra });
   }
+  lastJSONRaw = text;
   const first = parseLooseJSON<T>(text);
   if (first) return first;
   try {
