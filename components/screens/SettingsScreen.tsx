@@ -343,8 +343,16 @@ function PersonaCard() {
   };
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>🎭 点评的语气</Text>
-      <Text style={styles.muted}>晚上复盘后的点评、每周小结都用这个语气写。只改说话风格，数字和建议照旧按你的真实数据来。</Text>
+      <Text style={styles.cardTitle}>🎭 AI 的语气</Text>
+      <Text style={styles.muted}>晚上复盘后的点评、每周小结{p.chat !== false ? '，还有「🏠 今天」里和 AI 的对话' : ''}都用这个语气。只改说话风格，数字、安排和建议照旧按你的真实数据来。</Text>
+      <View style={[styles.row, { marginTop: 8 }]}>
+        <Text style={[styles.label, { width: 'auto', paddingTop: 0, marginRight: 8 }]}>和 AI 聊天也用这个语气</Text>
+        {[true, false].map(v => (
+          <TouchableOpacity key={String(v)} style={[styles.chip, (p.chat !== false) === v && styles.chipOn]} onPress={() => pick({ ...p, chat: v })}>
+            <Text style={[styles.chipText, (p.chat !== false) === v && styles.chipTextOn]}>{v ? '用' : '不用（只在点评里用）'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <View style={[styles.row, { flexWrap: 'wrap', marginTop: 8 }]}>
         {(Object.keys(PERSONAS) as (keyof typeof PERSONAS)[]).map(id => (
           <TouchableOpacity key={id} style={[styles.chip, p.id === id && styles.chipOn]} onPress={() => pick({ ...p, id })}>

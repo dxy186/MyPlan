@@ -46,6 +46,7 @@ import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
 import { parseDdlLine } from '@/components/data/quick-parse';
 import RichText from './RichText';
+import { chatPersonaPrompt, loadPersona } from './coach';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
@@ -511,8 +512,9 @@ export default function AssistantScreen() {
       const pendingNote = carried.length
         ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
         : '';
+      const personaTone = chatPersonaPrompt(await loadPersona());
       const msgs: ChatMessage[] = [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: SYSTEM_PROMPT + personaTone },
         { role: 'system', content: `当前数据：\n${context}` },
         ...historyForAi(h1.slice(-9, -1)),
         pics.length

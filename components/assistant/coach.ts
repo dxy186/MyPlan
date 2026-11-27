@@ -10,7 +10,13 @@ import type { WeeklySummary } from '@/components/data/weekly';
 // ---------- 点评的语气（人设）----------
 export const PERSONA_KEY = '@myplan_coach_persona';
 export type PersonaId = 'coach' | 'elysia' | 'custom';
-export type PersonaSetting = { id: PersonaId; custom?: string; customName?: string };
+export type PersonaSetting = {
+  id: PersonaId;
+  custom?: string;
+  customName?: string;
+  /** 「今天」页和 AI 的对话也用这个语气（默认用） */
+  chat?: boolean;
+};
 
 const BASE_RULES = '用中文，不用 markdown，不要列表。数字和事实必须和给你的数据一致，不要编造。建议要具体、小、明天就能做。';
 
@@ -60,6 +66,26 @@ export async function savePersona(p: PersonaSetting) {
 export function personaLabel(p: PersonaSetting) {
   if (p.id === 'custom') return `💬 ${p.customName?.trim() || '自定义'}`;
   return p.id === 'elysia' ? '🌸 爱莉希雅' : '💬 今日点评';
+}
+
+/**
+ * 「今天」页 AI 对话的语气：加在系统提示词后面。只改 reply 的说话方式，
+ * 操作、数据、规则都不变。效率教练（默认）或关掉时返回空字符串。
+ */
+export function chatPersonaPrompt(p: PersonaSetting): string {
+  if (p.chat === false || p.id === 'coach') return '';
+  const body = p.id === 'custom' ? p.custom?.trim() : PERSONAS[p.id].prompt;
+  if (!body) return '';
+  return [
+    '',
+    '【说话语气】reply 里的话请用下面这个人设的语气来写。只改说话方式：要做的操作、数字、日期、规则、JSON 格式全部照上面的要求，一点都不能因为人设而改变。',
+    body,
+    '用在对话里的分寸：',
+    '- 执行类（加任务、改时间、做完了）还是 2–4 句，先把事情说清楚，再带一点语气，不要为了人设写长；',
+    '- 规划、建议、聊天类可以多一点她的风格，但方案本身要具体、清楚、好执行；排版（小标题、列点）照常用；',
+    '- 分享她自己的小事和心情不用每句都有：聊天、规划类偶尔一句就好，执行类不用；',
+    '- 用户情绪低落时先接住他的情绪，语气放轻，少用感叹号和 ♪。',
+  ].join('\n');
 }
 
 function personaPrompt(p: PersonaSetting) {
