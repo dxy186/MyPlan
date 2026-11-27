@@ -448,13 +448,16 @@ function CalendarMain() {
     const { next, changes } = applyActions(st, [
       // 写在哪天就是哪天做：不早于、也不晚于这一天
       // 名字里写了 DDL / 截止的：这天是截止日，不是「这天做」
-      /ddl|deadline|截止/i.test(title)
+      (parsed.kind === 'task' && parsed.ddl) || /ddl|deadline|截止/i.test(title)
         ? { type: 'add_task', title, due: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost }
         : { type: 'add_task', title, due: date, notBefore: date, estimateMin: parsed.estimateMin, energyCost: parsed.energyCost },
     ]);
     if (!changes[0]?.ok) return;
+    const isDdlAdd = (parsed.kind === 'task' && parsed.ddl) || /ddl|deadline|截止/i.test(title);
     setAddHint(
-      `📝 已加入：${title}（${parsed.estimateMin} 分钟${parsed.energyCost === 'high' ? '，高耗能' : ''}）——下面会显示排在几点`
+      isDdlAdd
+        ? `🔴 已加成 DDL：${title}（${date.slice(5)} 截止，不自动排时间；要拆步骤到任务页点它，或写的时候用 #?）`
+        : `📝 已加入：${title}（${parsed.estimateMin} 分钟${parsed.energyCost === 'high' ? '，高耗能' : ''}）——下面会显示排在几点`
     );
     const added = next.goals.flatMap(g => g.milestones.flatMap(m => m.tasks)).find(t => !before.has(t.id));
     if (added) await saveStyle(added.id, { textColor: newItemColor, bold: newItemBold });
@@ -1116,7 +1119,7 @@ function CalendarMain() {
                 <View style={styles.addContainer}>
                   <View style={styles.addRow}>
                     <TextInput
-                      placeholder="添加：写报告 2小时 / !复习 90分钟 / ?写论文（AI 帮拆）/ 15:00-17:00 开组会 / *妈妈生日（重要事件）"
+                      placeholder="添加：写报告 2小时 / #ES pre（DDL）/ *妈妈生日（重要事件）/ ?写论文（AI 帮拆）/ 15:00-17:00 开组会"
                       value={addText}
                       style={[styles.addInput, { flex: 1 }]}
                       onChangeText={setAddText}

@@ -44,6 +44,7 @@ import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
 import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
+import { parseDdlLine } from '@/components/data/quick-parse';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
@@ -416,6 +417,50 @@ export default function AssistantScreen() {
     return { next, schedule: replan(next), count: chosen.length, chosen };
   }, [proposal, state]);
 
+  /** 「#ES pre 12/8」：直接加成 DDL。处理了返回 true；没写日期等情况返回 false，交给 AI */
+  const addDdlLocally = async (text: string, userMsg: Msg): Promise<boolean> => {
+    const pre = text.match(/^关于\s*(\d{4}-\d{2}-\d{2})\s*这天[：:]\s*/);
+    const body = pre ? text.slice(pre[0].length) : text;
+    const lines = body.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length || !lines.every(l => /^[#＃]/.test(l))) return false;
+    const today = todayStr();
+    const items = lines.map(l => {
+      const p = parseDdlLine(l, today);
+      return p ? { title: p.title, date: p.date ?? pre?.[1], split: /^[#＃]+\s*[?？]|^[?？]+\s*[#＃]/.test(l) } : null;
+    });
+    if (items.some(x => !x || !x.date)) return false;
+    const fresh = await loadPlanState();
+    const existing = allTasks(fresh.goals).map(r => r.task);
+    const todo = (items as { title: string; date: string; split: boolean }[]).filter(
+      x => !existing.some(t => !t.done && t.title === x.title && t.due === x.date)
+    );
+    const dup = items.length - todo.length;
+    const { next, changes } = applyActions(
+      fresh,
+      todo.map(x => ({ type: 'add_task' as const, title: x.title, due: x.date, estimateMin: 30, energyCost: 'medium' as const }))
+    );
+    const ok = changes.filter(c => c.ok).length;
+    if (ok) await commitState(next);
+    setState(ok ? next : fresh);
+    const list = todo.map(x => `「${x.title}」${x.date.slice(5)} 截止`).join('、');
+    const reply = [
+      ok ? `🔴 已记成 DDL：${list}。日历上那天显示红字，不会自动排时间。` : '',
+      dup ? `有 ${dup} 条和现有的 DDL 同名同日，没有重复加。` : '',
+      ok ? `要拆成几步提前做，就说「拆一下 ${todo[0].title}」，子任务会排在截止日之前。` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    saveHistory([...markPending(history, 'dismissed'), userMsg, { role: 'assistant', content: reply, at: new Date().toISOString() }]);
+    setProposal(null);
+    setInput('');
+    const splitOne = todo.find(x => x.split);
+    if (ok && splitOne) {
+      const added = allTasks(next.goals).find(r => r.task.title === splitOne.title && r.task.due === splitOne.date);
+      if (added) openBreakdown(added.task.id);
+    }
+    return true;
+  };
+
   const send = async (raw?: string) => {
     const pics = raw === undefined ? images : [];
     const text = (raw ?? input).trim() || (pics.length ? '这是任务要求的截图，帮我拆成子任务并排进日程。' : '');
@@ -423,6 +468,8 @@ export default function AssistantScreen() {
     setError('');
     setInput('');
     const userMsg: Msg = { role: 'user', content: pics.length ? `🖼️ [${pics.length} 张图片] ${text}` : text, at: new Date().toISOString() };
+    // # 开头 = DDL：有日期就直接记上，不用等 AI（日历「问 AI」带过来的「关于 某天 这天：#…」用那天）
+    if (!pics.length && (await addDdlLocally(text, userMsg))) return;
     if (pics.length) setImages([]);
     // 发新消息时，上一个还没点「应用」的方案不丢：把它勾选的操作并进这次的新方案里
     const carried = proposal ? proposal.actions.filter((_, i) => proposal.enabled[i] && proposal.changes[i]?.ok) : [];
