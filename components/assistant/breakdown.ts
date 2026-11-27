@@ -5,12 +5,12 @@
  * 流程：requestBreakdown → （信息不够时先问 1–2 个问题）→ 预览可编辑 → applyBreakdown 替换原任务
  */
 import { callChatJSON } from '@/app/utils/ai';
-import { EnergyCost, KEYS, PlanTask, addDays, diffDays, loadJSON, minutesToHM, randomId, speedFactor, todayStr, weekdayOf } from '@/app/utils/planning';
+import { EnergyCost, KEYS, PlanTask, addDays, diffDays, loadJSON, minutesToHM, randomId, todayStr, weekdayOf } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 
 import { loadReviews, reasonSummary } from './followup';
 import { buildInsights, categoryFactors, categoryOf, habitsForAi, loadBlockLog } from './habits';
-import { PlanState, allTasks, commitState, explicitStart, loadPlanState, spentByTask, splitTaskInGoals } from './plan-store';
+import { PlanState, allTasks, commitState, effectiveSpeed, explicitStart, loadPlanState, spentByTask, splitTaskInGoals } from './plan-store';
 
 export const BREAKDOWN_EVENT = 'myplan:breakdown';
 export const DATA_CHANGED_EVENT = 'myplan:data-changed';
@@ -105,7 +105,7 @@ export async function requestBreakdown(taskId: string, answers?: { q: string; a:
   const startFrom = st0 && st0 > today ? st0 : today;
   const until = ref.task.due && diffDays(startFrom, ref.task.due) >= 0 ? ref.task.due : addDays(startFrom, 6);
   const free = freeMinutesByDay(state, schedule, taskId, until, startFrom);
-  const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
+  const sf = effectiveSpeed(state);
   const cat = categoryOf(ref.task.title);
   const catStat = categoryFactors(state.timeLogs, state.goals).find(c => c.category === cat);
   const insights = buildInsights(state.timeLogs, state.goals, await loadBlockLog(), reasonSummary(await loadReviews()));

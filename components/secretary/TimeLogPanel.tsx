@@ -36,7 +36,8 @@ import {
   suggestFragment,
   todayStr,
 } from '@/app/utils/planning';
-import { loadPlanState } from '@/components/assistant/plan-store';
+import { commitState, loadPlanState } from '@/components/assistant/plan-store';
+import { loadScheduleSettings, saveScheduleSettings } from '@/components/data/settings';
 
 const CATEGORY_COLOR: Record<TimeLog['category'], string> = {
   任务: '#1976D2',
@@ -68,6 +69,10 @@ export default function TimeLogPanel() {
   const [energyLogs, setEnergyLogs] = useState<EnergyLog[]>([]);
   const [chores, setChores] = useState<{ title: string; minutes: number }[]>(DEFAULT_CHORES);
   const [message, setMessage] = useState('');
+  // 手动速率系数：undefined = 自动
+  const [override, setOverride] = useState<number | undefined>(undefined);
+  const [overrideText, setOverrideText] = useState('');
+  const [speedMsg, setSpeedMsg] = useState('');
 
   // 碎片时间
   const [fragType, setFragType] = useState<(typeof FRAGMENT_TYPES)[number]>('微恢复');
@@ -80,6 +85,9 @@ export default function TimeLogPanel() {
       setEnergyLogs(await loadJSON<EnergyLog[]>(KEYS.energyLogs, []));
       const savedChores = await loadJSON<{ title: string; minutes: number }[]>(KEYS.choreTemplates, []);
       setChores(savedChores.length > 0 ? savedChores : DEFAULT_CHORES);
+      const ss = await loadScheduleSettings();
+      setOverride(ss.speedOverride);
+      if (ss.speedOverride) setOverrideText(String(ss.speedOverride));
     })();
   }, []);
 
@@ -101,7 +109,25 @@ export default function TimeLogPanel() {
   };
 
   const allPlanTasks = useMemo(() => goals.flatMap(g => g.milestones.flatMap(m => m.tasks)), [goals]);
-  const factor = useMemo(() => speedFactor(logs, allPlanTasks), [logs, allPlanTasks]);
+  const autoFactor = useMemo(() => speedFactor(logs, allPlanTasks), [logs, allPlanTasks]);
+  const factor = override ?? autoFactor;
+
+  const applySpeed = async (v: number | undefined) => {
+    if (v !== undefined && !(v >= 0.2 && v <= 5)) {
+      setSpeedMsg('系数要在 0.2 到 5 之间');
+      return;
+    }
+    const val = v === undefined ? undefined : Math.round(v * 100) / 100;
+    const ss = await loadScheduleSettings();
+    const next = { ...ss };
+    if (val === undefined) delete next.speedOverride;
+    else next.speedOverride = val;
+    await saveScheduleSettings(next);
+    setOverride(val);
+    setOverrideText(val === undefined ? '' : String(val));
+    await commitState(await loadPlanState());
+    setSpeedMsg(val === undefined ? `✅ 改回自动（×${autoFactor.toFixed(2)}），已重新排程` : `✅ 已改成 ×${val.toFixed(2)}，已重新排程`);
+  };
   const sampleCount = useMemo(() => speedSamples(logs, allPlanTasks).length, [logs, allPlanTasks]);
 
   const today = todayStr();
@@ -247,7 +273,7 @@ export default function TimeLogPanel() {
 
       {/* 速率校准 */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>实际 vs 预估（速率校准）</Text>
+        <Text style={styles.cardTitle}>实际 vs 预估（速率校准）{override !== undefined ? '　· 手动' : '　· 自动'}</Text>
         <View style={styles.rowBetween}>
           <Text style={styles.bigScore}>×{factor.toFixed(2)}</Text>
           <Text style={styles.subText}>
@@ -261,7 +287,33 @@ export default function TimeLogPanel() {
         <Text style={styles.tip}>例：预估 60min 的任务，按你的速率会排 {calibrateDemo}min。</Text>
         <Text style={styles.subText}>
           样本：{sampleCount} 个（同一任务的多次计时合并计算，任务完成后才计入）
+          {override !== undefined ? `；按记录自动算是 ×${autoFactor.toFixed(2)}` : ''}
         </Text>
+        <View style={styles.speedRow}>
+          <Text style={styles.subText}>手动调整：</Text>
+          {[0.8, 1, 1.2, 1.5].map(v => (
+            <TouchableOpacity key={v} style={[styles.speedChip, override === v && styles.speedChipOn]} onPress={() => applySpeed(v)}>
+              <Text style={[styles.speedChipText, override === v && styles.speedChipTextOn]}>×{v}</Text>
+            </TouchableOpacity>
+          ))}
+          <TextInput
+            style={styles.speedInput}
+            value={overrideText}
+            onChangeText={t => setOverrideText(t.replace(/[^0-9.]/g, ''))}
+            onSubmitEditing={() => applySpeed(Number(overrideText))}
+            placeholder="自定义，如 1.3"
+            placeholderTextColor="#9AA4B2"
+            keyboardType="decimal-pad"
+          />
+          <TouchableOpacity style={styles.speedChip} onPress={() => applySpeed(Number(overrideText))}>
+            <Text style={styles.speedChipText}>设定</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.speedChip, override === undefined && styles.speedChipOn]} onPress={() => applySpeed(undefined)}>
+            <Text style={[styles.speedChipText, override === undefined && styles.speedChipTextOn]}>自动</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.subText}>大于 1 = 给每个任务多留时间，小于 1 = 排得更紧。手动设了以后排程、拆分、AI 都按这个数来，点「自动」改回按记录计算。</Text>
+        {!!speedMsg && <Text style={styles.tip}>{speedMsg}</Text>}
       </View>
 
       {/* 今日统计 */}
@@ -356,6 +408,12 @@ const styles = StyleSheet.create({
   linkBtn: { marginTop: 10 },
   linkText: { color: '#2E7D32', fontSize: 13, fontWeight: '600' },
   percent: { fontSize: 18, fontWeight: '800', color: '#1976D2' },
+  speedRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 8, gap: 6 },
+  speedChip: { borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#fff' },
+  speedChipOn: { backgroundColor: '#1976D2', borderColor: '#1976D2' },
+  speedChipText: { fontSize: 13, color: '#455A64' },
+  speedChipTextOn: { color: '#fff', fontWeight: '600' },
+  speedInput: { borderWidth: 1, borderColor: '#D6E0EE', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 8, fontSize: 13, width: 110, backgroundColor: '#fff' },
   bigScore: { fontSize: 26, fontWeight: '800', color: '#1976D2' },
   deleteText: { color: '#E53935', fontSize: 16, fontWeight: 'bold', paddingHorizontal: 6 },
   logRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 0.6, borderColor: '#e6e6ed' },
