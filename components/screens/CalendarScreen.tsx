@@ -125,6 +125,26 @@ function CalendarMain() {
   const [addText, setAddText] = useState('');
   const [showDatePickerFor, setShowDatePickerFor] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(getNowDateString());
+  // 日历格子的高度：按可用空间撑满（这个月几行就分几份），最矮 110
+  const [cellH, setCellH] = useState(110);
+  const availH = React.useRef(0);
+  const calH = React.useRef(0);
+  const weeksOf = (ym: string) => {
+    const y = Number(ym.slice(0, 4));
+    const m = Number(ym.slice(5, 7));
+    const first = new Date(y, m - 1, 1).getDay();
+    const days = new Date(y, m, 0).getDate();
+    return Math.ceil((first + days) / 7);
+  };
+  const fitCells = () => {
+    if (!availH.current || !calH.current) return;
+    const weeks = weeksOf(currentMonth);
+    setCellH(h => {
+      const next = Math.max(110, Math.floor(h + (availH.current - calH.current - 2) / weeks));
+      return Math.abs(next - h) >= 2 ? next : h;
+    });
+  };
+  useEffect(fitCells, [currentMonth]);
   const [holidayMap, setHolidayMap] = useState<Record<string, 'holiday' | 'workday'>>({});
 
   // 「今天」跟着真实时间走：跳天时自动重渲染
@@ -566,10 +586,10 @@ function CalendarMain() {
       return (
         <TouchableOpacity
           activeOpacity={0.7}
-          style={[styles.dayCell, { backgroundColor: 'transparent' }]}
+          style={[styles.dayCell, { backgroundColor: 'transparent', minHeight: cellH, maxHeight: cellH }]}
           onPress={() => {}}
         >
-          <View style={{ height: 110 }} />
+          <View style={{ height: cellH }} />
         </TouchableOpacity>
       );
     }
@@ -628,7 +648,7 @@ function CalendarMain() {
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={handlePress}
-        style={[styles.dayCell, { backgroundColor: bgColor }]}
+        style={[styles.dayCell, { backgroundColor: bgColor, minHeight: cellH, maxHeight: cellH }]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
           <View style={[isToday && { backgroundColor: '#E5E5E5', borderRadius: 14, minWidth: 26, minHeight: 26, justifyContent: 'center', alignItems: 'center' }]}>
@@ -788,6 +808,19 @@ function CalendarMain() {
         </ScrollView>
       )}
 
+      <View
+        style={{ flex: 1, minHeight: 0 }}
+        onLayout={e => {
+          availH.current = e.nativeEvent.layout.height;
+          fitCells();
+        }}
+      >
+      <View
+        onLayout={e => {
+          calH.current = e.nativeEvent.layout.height;
+          fitCells();
+        }}
+      >
       <Calendar
         current={currentMonth}
         onDayPress={() => {}}
@@ -810,6 +843,8 @@ function CalendarMain() {
         }}
         style={{ marginHorizontal: 0, borderRadius: 13 }}
       />
+      </View>
+      </View>
 
       {/* 主模态框：我的事项 */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
