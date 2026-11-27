@@ -1,7 +1,7 @@
 /**
  * 今天页的跟进卡片：正在做 / 下一项、到点提醒开关、自动补排、早上计划、晚上复盘
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { EnergyLog, KEYS, addDays, minutesToHM, randomId, saveJSON, todayStr } from '@/app/utils/planning';
@@ -9,6 +9,7 @@ import { ScheduleResult } from '@/app/utils/scheduler';
 
 import {
   IN_APP_REMINDER_EVENT,
+  OPEN_TARGET_EVENT,
   DailyPlan,
   DailyReview,
   MissedBlock,
@@ -29,6 +30,7 @@ import {
   saveDailyPlan,
   saveReminderSettings,
   saveReview,
+  takeWantReview,
   todayTasks,
 } from './followup';
 import { slotOfMinute } from './gap';
@@ -256,6 +258,32 @@ export function EveningCard({
   const [settings, setSettings] = useState<ReminderSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
+  // 从日历的「🌙 1 分钟复盘今天」跳过来：不管几点都显示，并滚到这张卡
+  const [forced, setForced] = useState(false);
+  const cardRef = useRef<View>(null);
+
+  useEffect(() => {
+    if (takeWantReview()) setForced(true);
+    const onOpen = (e: Event) => {
+      if ((e as CustomEvent<{ target: string }>).detail?.target === 'review') {
+        takeWantReview();
+        setForced(true);
+      }
+    };
+    if (typeof window !== 'undefined') window.addEventListener(OPEN_TARGET_EVENT, onOpen);
+    return () => {
+      if (typeof window !== 'undefined') window.removeEventListener(OPEN_TARGET_EVENT, onOpen);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!forced || review === undefined || !settings) return;
+    const t = setTimeout(() => {
+      const el = cardRef.current as unknown as { scrollIntoView?: (o: object) => void } | null;
+      el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [forced, review, settings]);
 
   useEffect(() => {
     const today = todayStr();
@@ -265,9 +293,23 @@ export function EveningCard({
   }, []);
 
   const items = useMemo(() => reviewCandidates(state, schedule, plan), [state, schedule, plan]);
-  if (review !== null || !settings || items.length === 0) return null;
+  if (review === undefined || !settings) return null;
+  if (review !== null) {
+    if (!forced) return null;
+    return (
+      <View ref={cardRef} style={styles.eveningCard}>
+        <Text style={styles.cardTitle}>🌙 今天已经复盘过了</Text>
+        <Text style={styles.muted}>
+          完成 {review.items.filter(x => x.status === 'done').length}/{review.items.length} 项。{review.note ? `\n${review.note}` : ''}
+        </Text>
+        <TouchableOpacity onPress={() => setForced(false)}>
+          <Text style={styles.link}>收起</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   const cur = minuteNow();
-  if (cur < settings.eveningReviewAt) return null;
+  if (!forced && cur < settings.eveningReviewAt) return null;
 
   const set = (id: string, d: Draft) => setDrafts(prev => ({ ...prev, [id]: { ...prev[id], ...d } }));
   const pending = items.filter(i => !i.task.done);
@@ -336,8 +378,9 @@ export function EveningCard({
   };
 
   return (
-    <View style={styles.eveningCard}>
+    <View ref={cardRef} style={styles.eveningCard}>
       <Text style={styles.cardTitle}>🌙 1 分钟复盘今天</Text>
+      {items.length === 0 && <Text style={styles.muted}>今天没有排进计划的任务。直接点「完成复盘」打个卡，AI 也会给今天写一句点评。</Text>}
       {items.map(({ task, todayMin }) => {
         const d = drafts[task.id] ?? {};
         return (
@@ -379,7 +422,7 @@ export function EveningCard({
       })}
       <Text style={styles.muted}>原因会记下来，以后规划时 AI 会参考（比如常常「估少了」就多留时间）。</Text>
       <TouchableOpacity style={[styles.primary, (!ready || busy) && styles.disabled]} disabled={!ready || busy} onPress={submit}>
-        <Text style={styles.primaryText}>{ready ? '完成复盘' : '每项选一下状态'}</Text>
+        <Text style={styles.primaryText}>{busy ? '正在保存…' : ready ? '完成复盘' : '每项选一下状态'}</Text>
       </TouchableOpacity>
     </View>
   );

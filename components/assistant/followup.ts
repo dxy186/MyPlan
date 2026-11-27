@@ -13,6 +13,7 @@ import {
   minutesToHM,
   saveJSON,
   todayStr,
+  toDateStr,
   weekdayOf,
 } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
@@ -194,10 +195,17 @@ export function reviewCandidates(state: PlanState, schedule: ScheduleResult | nu
     if (l.taskId && l.startAt && new Date(l.startAt).toDateString() === new Date().toDateString()) ids.add(l.taskId);
   }
   for (const t of todayTasks(schedule)) ids.add(t.taskId);
+  // 晚上重排后今天的空档可能已经没了：今天做完的、今天截止 / 今天开始的也算进来
+  const dayOf = (iso?: string) => (iso ? toDateStr(new Date(iso)) : '');
+  for (const t of refs.values()) {
+    if (t.split) continue;
+    if (t.done && dayOf(t.doneAt) === today) ids.add(t.id);
+    else if (!t.done && (t.due === today || t.notBefore === today)) ids.add(t.id);
+  }
   const spent = spentByTask(state.timeLogs.filter(l => new Date(l.startAt).toDateString() === new Date().toDateString()));
   return [...ids]
     .map(id => refs.get(id))
-    .filter((t): t is NonNullable<typeof t> => !!t)
+    .filter((t): t is NonNullable<typeof t> => !!t && !t.split)
     .map(t => ({ task: t, todayMin: spent.get(t.id) ?? 0, today }));
 }
 
@@ -262,7 +270,17 @@ export function openTarget(target?: OpenTarget) {
   // 桌面版：把隐藏在托盘里的窗口叫出来
   (window as any).myplanDesktop?.show?.();
   window.focus();
+  // 今天页可能还没打开：先记下来，复盘卡挂载时取走（不受时间、方案的限制强制显示并滚到它）
+  if (target === 'review') (window as any).__myplanWantReview = true;
   if (target) window.dispatchEvent(new CustomEvent(OPEN_TARGET_EVENT, { detail: { target } }));
+}
+
+/** 复盘卡调用：是不是刚从「复盘今天」入口跳过来的（取一次就清掉） */
+export function takeWantReview(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = !!(window as any).__myplanWantReview;
+  (window as any).__myplanWantReview = false;
+  return w;
 }
 
 export function notify(title: string, body: string, tag?: string, target?: OpenTarget) {
