@@ -157,7 +157,8 @@ export async function callChat(
   const content = data.choices?.[0]?.message?.content;
   // 有的服务商把内容拆成数组 [{type:'text', text}]
   const text = Array.isArray(content) ? content.map(c => (c as { text?: string })?.text ?? '').join('') : content;
-  return (typeof text === 'string' && text) || '抱歉，我没有给出回复。';
+  // 只有空白也算没回（DeepSeek 的 JSON 模式偶尔会这样）
+  return typeof text === 'string' && text.trim() ? text : '';
 }
 
 /** 模型没按 JSON 回复时抛出，raw 是它的原文（调用方可以当普通回复显示） */
@@ -287,7 +288,15 @@ export async function callChatJSON<T>(messages: ChatMessage[], opts?: { model?: 
     if (!/response_format|json_object|json mode|\((400|422)\)/i.test(String(e?.message))) throw e;
     text = await callChat(messages, { ...base, extra: opts?.extra });
   }
+  // JSON 模式偶尔只回一串空白：关掉 JSON 模式再要一次（普通模式下它会正常写）
+  if (!text.trim()) {
+    text = await callChat(
+      [...messages, { role: 'user', content: '（请直接用一个 JSON 对象回答上面这句：{"reply": "…", "actions": [...]}，reply 不能为空）' }],
+      { ...base, extra: opts?.extra }
+    );
+  }
   lastJSONRaw = text;
+  if (!text.trim()) throw new Error('AI 这次没有返回任何内容，可能是服务暂时不稳定，再发一次试试。');
   const first = parseLooseJSON<T>(text);
   if (first) return first;
   try {
