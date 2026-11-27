@@ -62,7 +62,7 @@ function ScheduleSettingsPanel() {
   const valid = hmOk(start) && hmOk(end) && hmToMinutes(end) > hmToMinutes(start) && s.maxFocusMin >= 15;
 
   const save = async () => {
-    const next: ScheduleSettings = { ...s, dayStartMin: hmToMinutes(start), dayEndMin: hmToMinutes(end) };
+    const next: ScheduleSettings = { ...s, speedOverride: (await loadScheduleSettings()).speedOverride, dayStartMin: hmToMinutes(start), dayEndMin: hmToMinutes(end) };
     await saveScheduleSettings(next);
     const st = await loadPlanState();
     await commitState(st);

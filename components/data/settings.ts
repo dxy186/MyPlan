@@ -16,6 +16,8 @@ export type ScheduleSettings = {
   breakMin: number;
   /** 往后排几天 */
   days: number;
+  /** 手动设的速率系数（实际 ≈ 预估 × 它）；不设 = 按时间记录自动算 */
+  speedOverride?: number;
 };
 
 export const DEFAULT_SETTINGS: ScheduleSettings = {

@@ -146,11 +146,18 @@ function nowMinuteRounded(d = new Date()) {
   return Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5;
 }
 
+/** 实际用来排程的速率系数：手动设了就用手动的，否则按时间记录自动算 */
+export function effectiveSpeed(state: Pick<PlanState, 'timeLogs' | 'goals' | 'settings'>): number {
+  const o = state.settings?.speedOverride;
+  if (typeof o === 'number' && o > 0) return o;
+  return speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
+}
+
 export function replan(state: PlanState, now = new Date()): ScheduleResult {
   const spent = spentByTask(state.timeLogs);
-  const sf = speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
-  // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下
-  const cats = categoryFactors(state.timeLogs, state.goals);
+  const sf = effectiveSpeed(state);
+  // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下（手动设了系数就完全按手动的来）
+  const cats = state.settings?.speedOverride ? [] : categoryFactors(state.timeLogs, state.goals);
   const quadById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.quadrant]));
   const dueById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task.due]));
   const taskById = new Map(allTasks(state.goals).map(r => [r.task.id, r.task]));
@@ -887,8 +894,8 @@ export function buildContext(
   const spent = spentByTask(state.timeLogs);
   const lines: string[] = [];
   lines.push(`现在：${today} ${WEEKDAY_CN[weekdayOf(today)]} ${minutesToHM(nowMin)}`);
-  const sf = speedFactor(state.timeLogs, refsAll(state));
-  lines.push(`速率系数：${sf}（实际耗时 ≈ 预估 × ${sf}，来自历史时间记录）`);
+  const sf = effectiveSpeed(state);
+  lines.push(`速率系数：${sf}（实际耗时 ≈ 预估 × ${sf}，${state.settings?.speedOverride ? '用户手动设定' : '来自历史时间记录'}）`);
   if (habits) lines.push(habits);
   const gold = goldenSlots(predictCurve(state.energyLogs, today)).map(slotLabel);
   if (gold.length) lines.push(`精力最好的时段：${gold.join('、')}`);

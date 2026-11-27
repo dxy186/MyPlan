@@ -16,13 +16,12 @@ import {
   predictCurve,
   randomId,
   saveJSON,
-  speedFactor,
   todayStr,
   weekdayOf,
 } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 
-import { PlanState, allTasks, spentByTask } from './plan-store';
+import { PlanState, allTasks, effectiveSpeed, spentByTask } from './plan-store';
 
 export type EnergyLevel = 'high' | 'medium' | 'low';
 
@@ -144,7 +143,7 @@ export function suggestForGap(
   const refs = allTasks(state.goals);
   const doneIds = new Set(refs.filter(r => r.task.done).map(r => r.task.id));
   const spent = spentByTask(state.timeLogs);
-  const sf = speedFactor(state.timeLogs, refs.map(r => r.task));
+  const sf = effectiveSpeed(state);
   const nowWindow = WINDOW_OF_SLOT[slotOfMinute(cur)];
 
   // 排程里今天最近要做的任务
