@@ -144,7 +144,30 @@ function CalendarMain() {
       return Math.abs(next - h) >= 2 ? next : h;
     });
   };
-  useEffect(fitCells, [currentMonth]);
+  // 自己量高度（react-native-web 的 onLayout 在这里不总是触发）：窗口大小变了、换月份、格子高度变了都重新量
+  const outerRef = useRef<View>(null);
+  const innerRef = useRef<View>(null);
+  useEffect(() => {
+    const outer = outerRef.current as unknown as HTMLElement | null;
+    const inner = innerRef.current as unknown as HTMLElement | null;
+    if (!outer?.getBoundingClientRect || !inner?.getBoundingClientRect) return;
+    const measure = () => {
+      availH.current = outer.getBoundingClientRect().height;
+      calH.current = inner.getBoundingClientRect().height;
+      fitCells();
+    };
+    const raf = requestAnimationFrame(measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(outer);
+    ro?.observe(inner);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMonth, cellH]);
   const [holidayMap, setHolidayMap] = useState<Record<string, 'holiday' | 'workday'>>({});
 
   // 「今天」跟着真实时间走：跳天时自动重渲染
@@ -808,19 +831,8 @@ function CalendarMain() {
         </ScrollView>
       )}
 
-      <View
-        style={{ flex: 1, minHeight: 0 }}
-        onLayout={e => {
-          availH.current = e.nativeEvent.layout.height;
-          fitCells();
-        }}
-      >
-      <View
-        onLayout={e => {
-          calH.current = e.nativeEvent.layout.height;
-          fitCells();
-        }}
-      >
+      <View ref={outerRef} style={{ flex: 1, minHeight: 0 }}>
+      <View ref={innerRef}>
       <Calendar
         // 格子高度变了要整个重画（日历内部会缓存每个格子）
         key={`cal-h-${cellH}`}
