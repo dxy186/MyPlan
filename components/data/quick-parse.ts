@@ -9,11 +9,12 @@
  *   ?写期末论文          → 开头加 ? ：加进去后马上让 AI 帮你拆成小步骤
  *   *妈妈生日           → 开头加 * ：重要事件（只在日历上标出来，不当任务）；生日、纪念日自动每年重复
  *   *每年 结婚纪念日      → 每年重复；「*14:00 面试」可以带个时间
+ *   #ES pre             → 开头加 # ：DDL（这天截止，只标红、不自动排）；#? 一起写 = DDL + 马上让 AI 拆
  */
-import { EnergyCost } from '@/app/utils/planning';
+import { EnergyCost, addDays, toDateStr, weekdayOf } from '@/app/utils/planning';
 
 export type QuickParsed =
-  | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean; breakdown?: boolean }
+  | { kind: 'task'; title: string; estimateMin: number; energyCost: EnergyCost; explicitMin: boolean; breakdown?: boolean; ddl?: boolean }
   | { kind: 'fixed'; title: string; start: string; end: string; weekdays?: number[] }
   | { kind: 'event'; title: string; yearly: boolean; time?: string };
 
@@ -95,15 +96,26 @@ export function quickParse(input: string): QuickParsed {
   }
   let high = false;
   let breakdown = false;
-  // 开头的 ? / ! 顺序随意，可以叠着写（?! 或 !?）
+  let ddl = false;
+  // 开头的 ? / ! / # 顺序随意，可以叠着写（?! 、#? …）
   for (;;) {
-    if (/^[?？]/.test(text)) {
+    if (/^[#＃]/.test(text)) {
+      ddl = true;
+      text = text.replace(/^[#＃]+\s*/, '');
+    } else if (/^[?？]/.test(text)) {
       breakdown = true;
       text = text.replace(/^[?？]+\s*/, '');
     } else if (/^[!！]/.test(text)) {
       high = true;
       text = text.replace(/^[!！]+\s*/, '');
     } else break;
+  }
+  // DDL：不当固定日程解析，开头写的「23:59」之类当截止时刻，去掉
+  if (ddl) {
+    const t = text.replace(new RegExp(`^(${CLOCK})\\s*`), '');
+    const d = parseDuration(t);
+    const title = (d ? d.rest : t).trim() || 'DDL';
+    return { kind: 'task', title, estimateMin: d ? d.minutes : 30, energyCost: high ? 'high' : 'medium', explicitMin: !!d, breakdown, ddl: true };
   }
   // 每周重复：每周二、四 8:00-10:00 高数课
   const weekly = parseWeekly(text);
@@ -139,4 +151,54 @@ export function quickParse(input: string): QuickParsed {
   const estimateMin = d ? d.minutes : high ? 60 : 30;
   const energyCost: EnergyCost = high ? 'high' : estimateMin <= 30 ? 'low' : 'medium';
   return { kind: 'task', title, estimateMin, energyCost, explicitMin: !!d, ...(breakdown ? { breakdown: true } : {}) };
+}
+
+/**
+ * 聊天里用 # 标出的 DDL：「#ES pre 12/8」「#交实验报告 下周三」「#12月8日 论文」。
+ * 找出日期并从名字里去掉；没写日期 date 为 undefined。
+ */
+export function parseDdlLine(input: string, from: string): { title: string; date?: string } | null {
+  const m = input.trim().match(/^[#＃]+\s*([\s\S]*)$/);
+  if (!m) return null;
+  let text = m[1].replace(/^[?？!！]+\s*/, '');
+  let date: string | undefined;
+  const year = Number(from.slice(0, 4));
+  const md = (mo: number, d: number) => {
+    if (!(mo >= 1 && mo <= 12 && d >= 1 && d <= 31)) return undefined;
+    let ds = toDateStr(new Date(year, mo - 1, d));
+    // 写的月日已经过去一个多月了：当成明年的
+    if (ds < addDays(from, -31)) ds = toDateStr(new Date(year + 1, mo - 1, d));
+    return ds;
+  };
+  const WK: Record<string, number> = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+  const pats: [RegExp, (r: RegExpMatchArray) => string | undefined][] = [
+    [/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})[日号]?/, r => toDateStr(new Date(Number(r[1]), Number(r[2]) - 1, Number(r[3])))],
+    [/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/, r => md(Number(r[1]), Number(r[2]))],
+    [/(?<![\d:：])(\d{1,2})[/-](\d{1,2})(?![\d:：])/, r => md(Number(r[1]), Number(r[2]))],
+    [/大后天/, () => addDays(from, 3)],
+    [/后天/, () => addDays(from, 2)],
+    [/明天/, () => addDays(from, 1)],
+    [/今天/, () => from],
+    [
+      /(下{1,2})?(?:周|星期|礼拜)([一二三四五六日天])/,
+      r => {
+        const wd = weekdayOf(from);
+        const target = WK[r[2]];
+        if (!r[1]) return addDays(from, (target - wd + 7) % 7); // 周五：这周五（今天就是周五就是今天）
+        const toNextMon = (8 - wd) % 7 || 7;
+        return addDays(from, toNextMon + (target + 6) % 7 + 7 * (r[1].length - 1)); // 下周五 / 下下周五
+      },
+    ],
+  ];
+  for (const [re, fn] of pats) {
+    const r = text.match(re);
+    if (!r) continue;
+    const d = fn(r);
+    if (!d) continue;
+    date = d;
+    text = text.slice(0, r.index) + ' ' + text.slice((r.index ?? 0) + r[0].length).replace(/^\s*(?:截止|之前|前|due)\s*/i, ' ');
+    break;
+  }
+  const title = text.replace(/\s*(?:截止|之前|前)\s*$/, '').replace(/\s+/g, ' ').trim();
+  return { title: title || 'DDL', date };
 }
