@@ -125,7 +125,7 @@ function CalendarMain() {
   const [addText, setAddText] = useState('');
   const [showDatePickerFor, setShowDatePickerFor] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(getNowDateString());
-  // 日历格子的高度：按可用空间撑满（这个月几行就分几份），最矮 110
+  // 日历格子的高度：正好放进一屏（这个月几行就分几份），不用上下滑；最矮 56
   const [cellH, setCellH] = useState(110);
   const availH = React.useRef(0);
   const calH = React.useRef(0);
@@ -140,7 +140,7 @@ function CalendarMain() {
     if (!availH.current || !calH.current) return;
     const weeks = weeksOf(currentMonth);
     setCellH(h => {
-      const next = Math.max(110, Math.floor(h + (availH.current - calH.current - 2) / weeks));
+      const next = Math.max(56, Math.floor(h + (availH.current - calH.current - 2) / weeks));
       return Math.abs(next - h) >= 2 ? next : h;
     });
   };
@@ -152,7 +152,14 @@ function CalendarMain() {
     const inner = innerRef.current as unknown as HTMLElement | null;
     if (!outer?.getBoundingClientRect || !inner?.getBoundingClientRect) return;
     const measure = () => {
-      availH.current = outer.getBoundingClientRect().height;
+      // 能用的高度 = 页面可见区域的底边 - 日历顶上的位置（不算滚动）：这样日历刚好一屏放下
+      const page = document.getElementById('myplan-content');
+      if (page) {
+        const pr = page.getBoundingClientRect();
+        const padB = parseFloat(getComputedStyle(page).paddingBottom) || 0;
+        const topNoScroll = outer.getBoundingClientRect().top + page.scrollTop;
+        availH.current = Math.max(200, pr.bottom - padB - topNoScroll - 6);
+      } else availH.current = outer.getBoundingClientRect().height;
       calH.current = inner.getBoundingClientRect().height;
       fitCells();
     };
