@@ -822,6 +822,8 @@ function CalendarMain() {
         }}
       >
       <Calendar
+        // 格子高度变了要整个重画（日历内部会缓存每个格子）
+        key={`cal-h-${cellH}`}
         current={currentMonth}
         onDayPress={() => {}}
         onMonthChange={handleMonthChange}
