@@ -275,6 +275,16 @@ function DayTimeline({
   );
 }
 
+/** 只回了「好的 / 收到 / 明白」这类话 */
+const HOLLOW_RE = /^(好的?|好嘞|好哒|收到|明白了?|了解|知道了|没问题|ok|okay|嗯+|行|可以)[，,。.!！~～\s]*(?:♪)?$/i;
+/** 用户自己只是在应答（谢谢 / 好的 / 嗯）：这时 AI 回「好的」是正常的 */
+const ACK_RE = /^(好的?|好嘞|嗯+|ok|okay|谢谢|多谢|thanks|thx|收到|知道了|没事了?|算了|不用了?|行)[，,。.!！~～\s]*$/i;
+function isHollow(r: { reply: string; actions: unknown[] }): boolean {
+  if (r.actions.length) return false;
+  const t = r.reply.trim();
+  return !t || HOLLOW_RE.test(t) || t.replace(/[\s，,。.!！~～♪]/g, '').length <= 3;
+}
+
 /** AI 回的 JSON 字段名不一定规范：reply / message / response…、actions / operations…，甚至直接是一个数组或单个操作 */
 function normalizeAiResult(r: unknown): { reply: string; actions: AssistantAction[] } {
   const isAction = (x: unknown) => !!x && typeof x === 'object' && typeof (x as { type?: unknown }).type === 'string';
@@ -508,8 +518,10 @@ export default function AssistantScreen() {
       ];
       const aiOpts = pics.length ? visionOpts(cfg.visionModel) : undefined;
       let result = normalizeAiResult(await callChatJSON<unknown>(msgs, aiOpts));
-      if (!result.reply.trim() && result.actions.length === 0) {
-        // 回了个空的（以前会显示成「好的。」然后什么都没发生）：提醒它按格式再答一次
+      // 回了个空的、或者只回「好的 / 收到」却什么都没做（多半是没听懂）：让它认真理解后再答一次
+      const userJustAcks = ACK_RE.test(text.trim());
+      for (let attempt = 0; attempt < 2 && !userJustAcks && isHollow(result); attempt++) {
+        const empty = !result.reply.trim();
         result = normalizeAiResult(
           await callChatJSON<unknown>(
             [
@@ -517,8 +529,12 @@ export default function AssistantScreen() {
               { role: 'assistant', content: lastJSONRaw.slice(0, 2000) || '{}' },
               {
                 role: 'user',
-                content:
-                  '你刚才的回复是空的，我看不到任何内容。请重新回答上一条：要改数据就在 actions 里写出操作；觉得不用改，就在 reply 里说明当前数据里对应的是哪一条、在哪天。reply 不能为空。',
+                content: empty
+                  ? '你刚才的回复是空的，我看不到任何内容。请重新回答上一条：要改数据就在 actions 里写出操作；觉得不用改，就在 reply 里说明当前数据里对应的是哪一条、在哪天。reply 不能为空。'
+                  : `你只回了「${result.reply.trim()}」，但什么都没做，我不知道你理解成了什么。请重新理解我上一条话「${text.slice(0, 300)}」：` +
+                    '先按最可能的意思直接给出操作（actions）并在 reply 里说清楚你理解成了什么、做了什么；' +
+                    '如果确实有两种以上理解，就在 reply 里列出 2–3 个具体选项问我（比如「你是想 ① 加一个 12/8 截止的 DDL，还是 ② 记进 12/8 的日记？」）。' +
+                    '不要只回「好的」「收到」这类话。',
               },
             ],
             aiOpts
@@ -541,6 +557,15 @@ export default function AssistantScreen() {
           raw && !raw.startsWith('{') && !raw.startsWith('[')
             ? raw.slice(0, 3000)
             : 'AI 这次没给出内容（什么也没改）。换个说法再试一次，比如「ES pre 12/8 截止，加成 DDL」。';
+      } else if (!userJustAcks && isHollow({ reply, actions })) {
+        // 重试了还是只有一句「好的」：别假装做了，直接说没听懂，给几个能直接照抄的说法
+        reply =
+          `我没太理解「${text.slice(0, 40)}${text.length > 40 ? '…' : ''}」想让我做什么，这次什么都没改。你是想：\n` +
+          '① 加任务 / DDL：比如「#ES pre 12/8」「明天下午写报告 2 小时」\n' +
+          '② 改已有的：比如「把写报告挪到周五」「写报告做完了」\n' +
+          '③ 记进日记：比如「记进日记：今天状态不错」\n' +
+          '④ 问问题：比如「今天还剩什么」「帮我拆一下期末论文」\n' +
+          '换个说法再发一次就行。';
       }
       // 只是写日记：不用确认，直接写进去
       if (actions.length > 0 && actions.every(a => a.type === 'add_diary')) {
