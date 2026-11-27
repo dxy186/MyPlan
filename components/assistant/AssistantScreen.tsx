@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import { AiFormatError, ChatMessage, callChatJSON, getAiConfig, lastJSONRaw } from '@/app/utils/ai';
+import { AiFormatError, ChatMessage, callChatJSON, extractReplyLoosely, getAiConfig, lastJSONRaw } from '@/app/utils/ai';
 import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
@@ -68,7 +68,14 @@ export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
 
 /** proposal：这条回复带的调整方案后来有没有被确认 */
-type Msg = { role: 'user' | 'assistant'; content: string; at: string; proposal?: 'pending' | 'applied' | 'dismissed' };
+type Msg = {
+  role: 'user' | 'assistant';
+  content: string;
+  at: string;
+  proposal?: 'pending' | 'applied' | 'dismissed';
+  /** AI 回复没法正常显示时留下的原文（排查问题用，不显示） */
+  raw?: string;
+};
 
 /** 把还没确认的方案标记为某个状态 */
 function markPending(h: Msg[], to: 'applied' | 'dismissed'): Msg[] {
@@ -77,7 +84,8 @@ function markPending(h: Msg[], to: 'applied' | 'dismissed'): Msg[] {
 
 /** 发给 AI 的历史：没确认的方案要注明「没有生效」，免得 AI 以为已经加过了 */
 function historyForAi(h: Msg[]) {
-  return h.map(m => ({
+  // App 自己写的「没给出内容 / 没听懂」提示不发回给 AI，免得它照着学
+  return h.filter(m => !(m.role === 'assistant' && (m.raw !== undefined || /^AI 这次没给出内容|^我没太理解/.test(m.content)))).map(m => ({
     role: m.role,
     content:
       m.role === 'assistant' && m.proposal && m.proposal !== 'applied'
@@ -302,11 +310,31 @@ function normalizeAiResult(r: unknown): { reply: string; actions: AssistantActio
   if (!r || typeof r !== 'object') return { reply: typeof r === 'string' ? r : '', actions: [] };
   const o = r as Record<string, unknown>;
   if (isAction(o) && !('reply' in o)) return { reply: '', actions: [o as unknown as AssistantAction] };
-  const replyKey = ['reply', 'message', 'response', 'answer', 'text', 'content', '回复', 'msg'].find(k => typeof o[k] === 'string' && (o[k] as string).trim());
   const actKey = ['actions', 'operations', 'ops', 'action', 'changes', '操作'].find(k => Array.isArray(o[k]) || isAction(o[k]));
   const rawActs = actKey ? o[actKey] : [];
   const actions = (Array.isArray(rawActs) ? rawActs : [rawActs]).filter(isAction) as AssistantAction[];
-  return { reply: replyKey ? String(o[replyKey]) : '', actions };
+  // reply 可能是字符串，也可能被写成了段落数组、或者 {text: …} 这样的对象
+  const asText = (v: unknown): string => {
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n');
+    if (v && typeof v === 'object') {
+      const ob = v as Record<string, unknown>;
+      for (const k of ['text', 'content', 'reply', 'message', 'answer']) if (typeof ob[k] === 'string') return ob[k] as string;
+    }
+    return '';
+  };
+  const replyKey = ['reply', 'message', 'response', 'answer', 'text', 'content', '回复', '回答', 'msg'].find(k => asText(o[k]).trim());
+  let reply = replyKey ? asText(o[replyKey]) : '';
+  if (!reply) {
+    // 字段名完全不认识：拿最长的一段文字当回复
+    const strs = Object.entries(o)
+      .filter(([k]) => k !== actKey)
+      .map(([, v]) => asText(v))
+      .filter(t => t.trim().length > 1)
+      .sort((a, b) => b.length - a.length);
+    reply = strs[0] ?? '';
+  }
+  return { reply, actions };
 }
 
 export default function AssistantScreen() {
@@ -562,13 +590,18 @@ export default function AssistantScreen() {
       const seen = new Set(carried.map(a => JSON.stringify(a)));
       const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];
       let reply = result.reply.trim() || (actions.length ? '我拟了一个调整方案，请确认。' : '');
+      let usedFallback = false;
       if (!reply) {
+        usedFallback = true;
         const raw = lastJSONRaw.trim();
-        reply =
-          raw && !raw.startsWith('{') && !raw.startsWith('[')
+        const loose = extractReplyLoosely(raw);
+        reply = loose
+          ? loose
+          : raw && !raw.startsWith('{') && !raw.startsWith('[')
             ? raw.slice(0, 3000)
             : 'AI 这次没给出内容（什么也没改）。换个说法再试一次，比如「ES pre 12/8 截止，加成 DDL」。';
       } else if (!userJustAcks && isHollow({ reply, actions })) {
+        usedFallback = true;
         // 重试了还是只有一句「好的」：别假装做了，直接说没听懂，给几个能直接照抄的说法
         reply =
           `我没太理解「${text.slice(0, 40)}${text.length > 40 ? '…' : ''}」想让我做什么，这次什么都没改。你是想：\n` +
@@ -595,7 +628,13 @@ export default function AssistantScreen() {
       if (actions.length) reply += '\n👉 点下面的「应用」后才会生效。';
       saveHistory([
         ...h1,
-        { role: 'assistant', content: reply, at: new Date().toISOString(), ...(actions.length ? { proposal: 'pending' as const } : {}) },
+        {
+          role: 'assistant',
+          content: reply,
+          at: new Date().toISOString(),
+          ...(actions.length ? { proposal: 'pending' as const } : {}),
+          ...(usedFallback ? { raw: lastJSONRaw.slice(0, 4000) } : {}),
+        },
       ]);
       if (actions.length > 0) {
         const { changes } = applyActions(fresh, actions);

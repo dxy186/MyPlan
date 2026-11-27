@@ -169,6 +169,51 @@ export class AiFormatError extends Error {
   }
 }
 
+/** 把 JSON 字符串值里的原始换行、回车、制表符改成转义写法 */
+function escapeCtrlInStrings(s: string): string {
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  for (const c of s) {
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      else if (c === '\n') {
+        out += '\\n';
+        continue;
+      } else if (c === '\r') {
+        out += '\\r';
+        continue;
+      } else if (c === '\t') {
+        out += '\\t';
+        continue;
+      }
+    } else if (c === '"') inStr = true;
+    out += c;
+  }
+  return out;
+}
+
+/** JSON 实在解析不了（被截断、格式乱）：直接把 "reply": "……" 里的文字抠出来 */
+export function extractReplyLoosely(raw: string): string {
+  const m = raw.match(/"(?:reply|message|response|answer|text|content)"\s*:\s*"/);
+  if (!m || m.index === undefined) return '';
+  let out = '';
+  for (let i = m.index + m[0].length; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\\' && i + 1 < raw.length) {
+      const n = raw[++i];
+      if (n === 'u') {
+        out += String.fromCharCode(parseInt(raw.slice(i + 1, i + 5), 16) || 32);
+        i += 4;
+      } else out += n === 'n' ? '\n' : n === 't' ? '\t' : n === 'r' ? '' : n;
+    } else if (c === '"') break;
+    else out += c;
+  }
+  return out.trim();
+}
+
 /** 宽松地从一段文字里抠出 JSON：去掉 ```json 包裹、注释、尾逗号、中文引号，找第一个配平的 {...} */
 export function parseLooseJSON<T>(text: string): T | null {
   if (!text) return null;
@@ -203,13 +248,17 @@ export function parseLooseJSON<T>(text: string): T | null {
       }
     }
     const body = end === -1 ? t.slice(start) : t.slice(start, end + 1);
+    const cleaned = body
+      .replace(/\/\/[^\n"]*$/gm, '')
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'");
     const variants = [
       body,
-      body
-        .replace(/\/\/[^\n"]*$/gm, '')
-        .replace(/,\s*([}\]])/g, '$1')
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, "'"),
+      // 长回复里常见：字符串里直接换行（JSON 不允许），先把字符串里的换行 / 制表符转义
+      escapeCtrlInStrings(body),
+      cleaned,
+      escapeCtrlInStrings(cleaned),
     ];
     for (const v of variants) {
       try {
