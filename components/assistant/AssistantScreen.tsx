@@ -617,7 +617,7 @@ export default function AssistantScreen() {
       )}
       <MissedCard missed={missed} onClose={() => setMissed([])} />
       {state && <WeeklyCard state={state} />}
-      {state && !proposal && (
+      {state && (
         <EveningCard
           state={state}
           schedule={schedule}
