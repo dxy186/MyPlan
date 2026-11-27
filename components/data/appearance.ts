@@ -41,7 +41,7 @@ export type Appearance = {
   skin: SkinKey;
   /** 内容区底色的不透明度 0–1：设了背景图时，调低能透出背景 */
   contentOpacity: number;
-  /** 卡片（白色、浅色块）的不透明度 0.3–1 */
+  /** 卡片（白色、浅色块）的不透明度 0.05–1 */
   cardOpacity: number;
   /** 背景图模糊（px） */
   wallpaperBlur: number;
@@ -49,7 +49,7 @@ export type Appearance = {
   wallpaperDim: number;
   /** 界面缩放 0.8–1.3 */
   zoom: number;
-  /** 桌面版：整个窗口的不透明度 0.5–1 */
+  /** 桌面版：整个窗口的不透明度 0.05–1 */
   windowOpacity: number;
   /** 侧边栏收起（只显示图标） */
   sidebarCollapsed: boolean;
@@ -79,11 +79,11 @@ export function normalizeAppearance(raw: Partial<Appearance> | null | undefined)
   return {
     skin: SKINS.some(s => s.key === r.skin) ? (r.skin as SkinKey) : 'classic',
     contentOpacity: clamp(r.contentOpacity, 0, 1, 1),
-    cardOpacity: clamp(r.cardOpacity, 0.3, 1, 1),
+    cardOpacity: clamp(r.cardOpacity, 0.05, 1, 1),
     wallpaperBlur: clamp(r.wallpaperBlur, 0, 30, 0),
     wallpaperDim: clamp(r.wallpaperDim, 0, 0.8, 0.25),
     zoom: clamp(r.zoom, 0.8, 1.3, 1),
-    windowOpacity: clamp(r.windowOpacity, 0.5, 1, 1),
+    windowOpacity: clamp(r.windowOpacity, 0.05, 1, 1),
     sidebarCollapsed: !!r.sidebarCollapsed,
     animations: r.animations !== false,
   };
