@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import { AiFormatError, callChatJSON, getAiConfig } from '@/app/utils/ai';
+import { AiFormatError, ChatMessage, callChatJSON, getAiConfig, lastJSONRaw } from '@/app/utils/ai';
 import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
@@ -274,6 +274,20 @@ function DayTimeline({
   );
 }
 
+/** AI 回的 JSON 字段名不一定规范：reply / message / response…、actions / operations…，甚至直接是一个数组或单个操作 */
+function normalizeAiResult(r: unknown): { reply: string; actions: AssistantAction[] } {
+  const isAction = (x: unknown) => !!x && typeof x === 'object' && typeof (x as { type?: unknown }).type === 'string';
+  if (Array.isArray(r)) return { reply: '', actions: r.filter(isAction) as AssistantAction[] };
+  if (!r || typeof r !== 'object') return { reply: typeof r === 'string' ? r : '', actions: [] };
+  const o = r as Record<string, unknown>;
+  if (isAction(o) && !('reply' in o)) return { reply: '', actions: [o as unknown as AssistantAction] };
+  const replyKey = ['reply', 'message', 'response', 'answer', 'text', 'content', '回复', 'msg'].find(k => typeof o[k] === 'string' && (o[k] as string).trim());
+  const actKey = ['actions', 'operations', 'ops', 'action', 'changes', '操作'].find(k => Array.isArray(o[k]) || isAction(o[k]));
+  const rawActs = actKey ? o[actKey] : [];
+  const actions = (Array.isArray(rawActs) ? rawActs : [rawActs]).filter(isAction) as AssistantAction[];
+  return { reply: replyKey ? String(o[replyKey]) : '', actions };
+}
+
 export default function AssistantScreen() {
   const [state, setState] = useState<PlanState | null>(null);
   const [schedule, setSchedule] = useState<ScheduleResult | null>(null);
@@ -431,7 +445,7 @@ export default function AssistantScreen() {
       const pendingNote = carried.length
         ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
         : '';
-      const result = await callChatJSON<{ reply?: string; actions?: AssistantAction[] }>([
+      const msgs: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: `当前数据：\n${context}` },
         ...historyForAi(h1.slice(-9, -1)),
@@ -444,8 +458,27 @@ export default function AssistantScreen() {
               ],
             }
           : { role: 'user', content: text + pendingNote },
-      ], pics.length ? visionOpts(cfg.visionModel) : undefined);
-      const fresh2 = (Array.isArray(result.actions) ? result.actions.filter(a => a && typeof a === 'object') : []).map(a =>
+      ];
+      const aiOpts = pics.length ? visionOpts(cfg.visionModel) : undefined;
+      let result = normalizeAiResult(await callChatJSON<unknown>(msgs, aiOpts));
+      if (!result.reply.trim() && result.actions.length === 0) {
+        // 回了个空的（以前会显示成「好的。」然后什么都没发生）：提醒它按格式再答一次
+        result = normalizeAiResult(
+          await callChatJSON<unknown>(
+            [
+              ...msgs,
+              { role: 'assistant', content: lastJSONRaw.slice(0, 2000) || '{}' },
+              {
+                role: 'user',
+                content:
+                  '你刚才的回复是空的，我看不到任何内容。请重新回答上一条：要改数据就在 actions 里写出操作；觉得不用改，就在 reply 里说明当前数据里对应的是哪一条、在哪天。reply 不能为空。',
+              },
+            ],
+            aiOpts
+          )
+        );
+      }
+      const fresh2 = result.actions.map(a =>
         // 保险：AI 把 DDL / 作业 / 考试这类记成了重要事件 → 改回 DDL 任务
         a.type === 'add_event' && DDL_LIKE.test(String((a as any).title || ''))
           ? ({ type: 'add_task', title: String((a as any).title), due: String((a as any).date), estimateMin: 30, energyCost: 'medium' } as AssistantAction)
@@ -454,7 +487,14 @@ export default function AssistantScreen() {
       // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
       const seen = new Set(carried.map(a => JSON.stringify(a)));
       const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];
-      let reply = String(result.reply || (actions.length ? '我拟了一个调整方案，请确认。' : '好的。'));
+      let reply = result.reply.trim() || (actions.length ? '我拟了一个调整方案，请确认。' : '');
+      if (!reply) {
+        const raw = lastJSONRaw.trim();
+        reply =
+          raw && !raw.startsWith('{') && !raw.startsWith('[')
+            ? raw.slice(0, 3000)
+            : 'AI 这次没给出内容（什么也没改）。换个说法再试一次，比如「ES pre 12/8 截止，加成 DDL」。';
+      }
       // 只是写日记：不用确认，直接写进去
       if (actions.length > 0 && actions.every(a => a.type === 'add_diary')) {
         const ok = applyActions(fresh, actions).changes.filter(c => c.ok);
