@@ -88,6 +88,14 @@ export default function RootLayout() {
     });
   }, []);
 
+  // 桌面版没有系统标题栏：顶上留一条能拖动窗口的区域，右上角按钮颜色跟着背景深浅
+  const frameless = !!(desktopBridge() as { frameless?: boolean } | null)?.frameless;
+  useEffect(() => {
+    const d = desktopBridge() as { setTitleBar?: (o: { symbolColor: string }) => void } | null;
+    const darkBg = skin.dark || (!!wallpaper && (ap.wallpaperDim >= 0.3 || ap.contentOpacity <= 0.5));
+    d?.setTitleBar?.({ symbolColor: darkBg ? '#FFFFFF' : '#37474F' });
+  }, [skin.dark, wallpaper, ap.wallpaperDim, ap.contentOpacity]);
+
   // 桌面版：整个窗口的透明度
   useEffect(() => {
     desktopBridge()?.setOpacity?.(ap.windowOpacity);
@@ -113,6 +121,7 @@ export default function RootLayout() {
     const z = ap.zoom;
     const lines = [
       `#myplan-root{zoom:${z};height:calc(100vh / ${z})!important}`,
+      '#myplan-drag{-webkit-app-region:drag;app-region:drag}',
       ap.skin === 'dark'
         ? `#myplan-content{filter:invert(0.92) hue-rotate(180deg)}#myplan-content img,#myplan-content video,#myplan-content canvas,#myplan-content [style*="background-image"]{filter:invert(1) hue-rotate(180deg)}`
         : '',
@@ -218,6 +227,7 @@ export default function RootLayout() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${ap.wallpaperDim})` }]} />
         </View>
       ) : null}
+      {frameless ? <View nativeID="myplan-drag" style={styles.dragBar} /> : null}
       <ReminderService />
       <BreakdownHost />
       <CelebrationHost />
@@ -283,6 +293,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   sidebarCollapsed: { width: 68, paddingHorizontal: 8 },
+  // 右边留出 150px 给系统的 最小化 / 最大化 / 关闭 按钮
+  dragBar: { position: 'absolute', top: 0, left: 0, right: 150, height: 30, zIndex: 50 },
   wallLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' },
   logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 },
   logo: { color: '#fff', fontSize: 24, fontWeight: '700' },

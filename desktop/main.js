@@ -406,6 +406,9 @@ async function createWindow() {
     minHeight: 600,
     autoHideMenuBar: true,
     title: 'MyPlan',
+    // 去掉系统白色标题栏，背景铺满整个窗口；右上角的 最小化 / 最大化 / 关闭 按钮叠在页面上
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#00000000', symbolColor: '#37474F', height: 32 },
     backgroundColor: '#F8FAFC',
     icon: hasCustomIcon() ? customIconPng() : path.join(__dirname, 'dist', 'favicon.ico'),
     show: !START_HIDDEN,
@@ -502,6 +505,14 @@ if (!app.requestSingleInstanceLock()) {
     return { closeAction: closeAction(), hotkey: currentHotkey(), hotkeyOk };
   });
   ipcMain.on('myplan:quit', () => quitApp());
+  // 按皮肤 / 背景调右上角三个按钮的颜色
+  ipcMain.on('myplan:titlebar', (_e, o) => {
+    try {
+      if (mainWindow && mainWindow.setTitleBarOverlay && o && typeof o.symbolColor === 'string') {
+        mainWindow.setTitleBarOverlay({ color: '#00000000', symbolColor: o.symbolColor, height: 32 });
+      }
+    } catch {}
+  });
 
   // Windows 系统通知需要 AppUserModelId，否则到点提醒弹不出来
   if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
