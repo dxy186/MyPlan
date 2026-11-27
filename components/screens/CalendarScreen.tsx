@@ -842,7 +842,8 @@ function CalendarMain() {
         markingType={'custom'}
         dayComponent={renderDay}
         theme={{ 
-          calendarBackground: '#F8FAFC', 
+          // 透明：外面的卡片已经有底色了，两层半透明叠在一起会出现一条明暗交界
+          calendarBackground: 'transparent',
           monthTextColor: '#383838', 
           textSectionTitleColor: '#7b8ba2', 
           todayTextColor: '#111',
