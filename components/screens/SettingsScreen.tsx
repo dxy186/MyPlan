@@ -21,10 +21,12 @@ import SubTabBar from '@/components/secretary/SubTabBar';
 import QuickSyntaxGuide from '@/components/data/QuickSyntaxGuide';
 import CheerImagesCard from './CheerImagesCard';
 import DesktopIconCard from './DesktopIconCard';
+import AppearancePanel from './AppearancePanel';
 
 const TABS = [
   { key: 'schedule', label: '🕘 作息与排程' },
   { key: 'ai', label: '🤖 AI' },
+  { key: 'appearance', label: '🎨 外观' },
   { key: 'reminder', label: '🔔 提醒' },
   { key: 'backup', label: '💾 数据备份' },
   { key: 'help', label: '📖 说明' },
@@ -388,6 +390,8 @@ export default function SettingsScreen() {
           <ScheduleSettingsPanel />
         ) : tab === 'ai' ? (
           <AiSettingsPanel />
+        ) : tab === 'appearance' ? (
+          <AppearancePanel />
         ) : tab === 'reminder' ? (
           <ReminderPanel />
         ) : tab === 'backup' ? (

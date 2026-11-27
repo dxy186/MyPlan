@@ -10,6 +10,7 @@ import { KEYS, loadJSON } from '@/app/utils/planning';
 import { ScheduleResult } from '@/app/utils/scheduler';
 import { randomCheerImage } from '@/components/data/cheer-images';
 import { fireConfetti } from '@/components/ui/confetti';
+import { loadAppearance } from '@/components/data/appearance';
 import { computeStreak } from '@/components/data/streak';
 
 import { loadReviews } from './followup';
@@ -82,7 +83,7 @@ export default function CelebrationHost() {
       setShow(s);
       chime(s.big);
       if (s.allDone) {
-        fireConfetti();
+        if ((await loadAppearance()).animations) fireConfetti();
         setTimeout(() => chime(true), 400);
       }
       if (timer.current) clearTimeout(timer.current);
