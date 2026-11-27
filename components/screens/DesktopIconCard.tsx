@@ -4,7 +4,7 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { fileToImage, pickImageFiles } from '@/components/assistant/image-attach';
 
-type Desk = { setIcon?: (d: string) => Promise<{ shortcuts: number }>; resetIcon?: () => Promise<{ shortcuts: number }>; hasIcon?: () => Promise<boolean> };
+type Desk = { version?: string; setIcon?: (d: string) => Promise<{ shortcuts: number }>; resetIcon?: () => Promise<{ shortcuts: number }>; hasIcon?: () => Promise<boolean> };
 const desk = (): Desk | null => (typeof window !== 'undefined' ? ((window as any).myplanDesktop as Desk) ?? null : null);
 
 export default function DesktopIconCard() {
@@ -21,6 +21,7 @@ export default function DesktopIconCard() {
   return (
     <View style={styles.card}>
       <Text style={styles.title}>🖼️ 桌面图标</Text>
+      {!!d?.version && <Text style={styles.muted}>当前桌面版版本：{d.version}</Text>}
       {!d?.setIcon ? (
         <Text style={styles.muted}>这个功能只在桌面版（MyPlan-Setup 安装的那个）里能用：选一张图片，桌面快捷方式、开始菜单、任务栏和托盘的图标都会换成它。</Text>
       ) : (

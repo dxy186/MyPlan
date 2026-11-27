@@ -3,6 +3,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('myplanDesktop', {
   isDesktop: true,
+  version: (() => {
+    try {
+      return ipcRenderer.sendSync('myplan:version');
+    } catch {
+      return '';
+    }
+  })(),
   show: () => ipcRenderer.send('myplan:show-window'),
   setIcon: dataUrl => ipcRenderer.invoke('myplan:set-icon', dataUrl),
   resetIcon: () => ipcRenderer.invoke('myplan:reset-icon'),

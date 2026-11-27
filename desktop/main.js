@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, session } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -71,13 +71,14 @@ function createStaticServer(rootDir, basePath) {
             res.writeHead(404);
             res.end('Not Found');
           } else {
-            res.writeHead(200, { 'Content-Type': MIME['.html'] });
+            res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
             res.end(html);
           }
         });
         return;
       }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream' });
+      // 页面文件不让浏览器缓存：装了新版本一打开就是新界面
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
       res.end(data);
     });
   });
@@ -458,6 +459,9 @@ if (!app.requestSingleInstanceLock()) {
     return { shortcuts: setShortcutIcons(exePath()) };
   });
   ipcMain.handle('myplan:has-icon', async () => hasCustomIcon());
+  ipcMain.on('myplan:version', (e) => {
+    e.returnValue = app.getVersion();
+  });
 
   app.whenReady().then(() => {
     ensureStartMenuShortcut();
@@ -468,7 +472,17 @@ if (!app.requestSingleInstanceLock()) {
     if (ds.autostart === undefined) setAutostart(true);
     else if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!ds.autostart, path: exePath(), args: ['--hidden'] });
     createTray();
-    createWindow().catch((err) => {
+    // 换了版本：清掉旧版本留下的网页缓存（只清缓存，不动你的数据 localStorage）
+    const clearOld =
+      ds.lastVersion !== app.getVersion()
+        ? Promise.all([
+            session.defaultSession.clearCache(),
+            session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage', 'shadercache'] }),
+          ])
+            .catch(() => {})
+            .then(() => saveDesktopSettings({ ...loadDesktopSettings(), lastVersion: app.getVersion() }))
+        : Promise.resolve();
+    clearOld.then(() => createWindow()).catch((err) => {
       dialog.showErrorBox('MyPlan 启动失败', String((err && err.message) || err));
       app.quit();
     });
