@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, session } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, session, globalShortcut } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -219,6 +219,36 @@ function ensureStartMenuShortcut() {
   }
 }
 
+// ---------- 关窗口的方式、呼出 / 收起窗口的全局快捷键 ----------
+const DEFAULT_HOTKEY = 'Ctrl+Alt+M';
+const STARTED_AT = Date.now();
+
+function closeAction() {
+  return loadDesktopSettings().closeAction === 'quit' ? 'quit' : 'tray';
+}
+function currentHotkey() {
+  const s = loadDesktopSettings();
+  return s.hotkey === undefined ? DEFAULT_HOTKEY : s.hotkey; // '' = 不用快捷键
+}
+function toggleWindow() {
+  if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused() && !mainWindow.isMinimized()) mainWindow.hide();
+  else showWindow();
+}
+/** 注册快捷键：成功返回 true；被别的软件占用等返回 false */
+function registerHotkey(acc) {
+  globalShortcut.unregisterAll();
+  if (!acc) return true;
+  try {
+    return globalShortcut.register(acc, toggleWindow);
+  } catch {
+    return false;
+  }
+}
+function quitApp() {
+  isQuitting = true;
+  app.quit();
+}
+
 function showWindow() {
   if (!mainWindow) {
     createWindow();
@@ -346,12 +376,16 @@ function buildTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: '退出（不再提醒）',
-      click: () => {
-        isQuitting = true;
-        app.quit();
+      label: '点窗口的 × 直接退出',
+      type: 'checkbox',
+      checked: closeAction() === 'quit',
+      click: (item) => {
+        saveDesktopSettings({ ...loadDesktopSettings(), closeAction: item.checked ? 'quit' : 'tray' });
+        tray && tray.setContextMenu(buildTrayMenu());
       },
     },
+    { type: 'separator' },
+    { label: '彻底退出（不再提醒）', click: quitApp },
   ]);
 }
 
@@ -387,11 +421,15 @@ async function createWindow() {
   // 点 × 不退出，只是藏到托盘里，到点照样提醒
   mainWindow.on('close', (e) => {
     if (isQuitting) return;
+    if (closeAction() === 'quit') {
+      isQuitting = true;
+      return;
+    }
     e.preventDefault();
     mainWindow.hide();
     const s = loadDesktopSettings();
     if (!s.trayTipShown && tray && process.platform === 'win32') {
-      tray.displayBalloon({ title: 'MyPlan 还在后台', content: '关掉窗口后会在托盘里待命，到点照样提醒。右键托盘图标可以退出。' });
+      tray.displayBalloon({ title: 'MyPlan 还在后台', content: '关掉窗口后会在托盘里待命，到点照样提醒。按 Ctrl+Alt+M 随时叫出来；右键托盘图标可以彻底退出。想点 × 就退出：设置 → 外观最下面改。' });
       saveDesktopSettings({ ...s, trayTipShown: true });
     }
   });
@@ -430,7 +468,40 @@ app.on('window-all-closed', () => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => showWindow());
+  app.on('second-instance', () => {
+    // 装了新版本后再打开：旧版本还在托盘里跑的话，自动重启成新版本
+    try {
+      if (fs.statSync(process.execPath).mtimeMs > STARTED_AT) {
+        isQuitting = true;
+        app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--hidden') });
+        app.exit(0);
+        return;
+      }
+    } catch {}
+    showWindow();
+  });
+  app.on('will-quit', () => globalShortcut.unregisterAll());
+
+  ipcMain.handle('myplan:desktop-get', async () => ({
+    closeAction: closeAction(),
+    hotkey: currentHotkey(),
+    hotkeyOk: !currentHotkey() || globalShortcut.isRegistered(currentHotkey()),
+    defaultHotkey: DEFAULT_HOTKEY,
+  }));
+  ipcMain.handle('myplan:desktop-set', async (_e, patch) => {
+    const s = loadDesktopSettings();
+    if (patch && (patch.closeAction === 'quit' || patch.closeAction === 'tray')) s.closeAction = patch.closeAction;
+    let hotkeyOk = true;
+    if (patch && typeof patch.hotkey === 'string') {
+      hotkeyOk = registerHotkey(patch.hotkey);
+      if (hotkeyOk) s.hotkey = patch.hotkey;
+      else registerHotkey(currentHotkey()); // 注册不上：恢复原来的
+    }
+    saveDesktopSettings(s);
+    tray && tray.setContextMenu(buildTrayMenu());
+    return { closeAction: closeAction(), hotkey: currentHotkey(), hotkeyOk };
+  });
+  ipcMain.on('myplan:quit', () => quitApp());
 
   // Windows 系统通知需要 AppUserModelId，否则到点提醒弹不出来
   if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
@@ -486,6 +557,7 @@ if (!app.requestSingleInstanceLock()) {
     if (ds.autostart === undefined) setAutostart(true);
     else if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!ds.autostart, path: exePath(), args: ['--hidden'] });
     createTray();
+    registerHotkey(currentHotkey());
     // 换了版本：清掉旧版本留下的网页缓存（只清缓存，不动你的数据 localStorage）
     const clearOld =
       ds.lastVersion !== app.getVersion()

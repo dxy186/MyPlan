@@ -16,6 +16,7 @@ import {
   saveWallpaper,
 } from '@/components/data/appearance';
 import { confirmAsync } from '@/components/ui/confirm';
+import WindowPrefsCard from './WindowPrefsCard';
 
 function Steps({
   value,
@@ -233,6 +234,8 @@ export default function AppearancePanel() {
           </View>
         </Row>
       </View>
+
+      <WindowPrefsCard />
 
       <TouchableOpacity
         style={styles.reset}
