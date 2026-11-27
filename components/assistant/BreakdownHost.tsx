@@ -44,7 +44,7 @@ export default function BreakdownHost() {
       }
     } catch (e: any) {
       const msg = e?.message || String(e);
-      setError(/key|Key|密钥|401/.test(msg) ? '还没有配置 AI Key：到「⚙️ 设置 → 🤖 AI」填入 DeepSeek API Key。' : msg);
+      setError(/key|Key|密钥|401/.test(msg) ? '还没有配置 AI Key：到「⚙️ 设置 → 🤖 AI」填入 API Key。' : msg);
       setPhase('error');
     }
   };

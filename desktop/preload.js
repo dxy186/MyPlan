@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('myplanDesktop', {
   getWindowPrefs: () => ipcRenderer.invoke('myplan:desktop-get'),
   setWindowPrefs: patch => ipcRenderer.invoke('myplan:desktop-set', patch),
   quit: () => ipcRenderer.send('myplan:quit'),
+  http: req => ipcRenderer.invoke('myplan:http', req),
   setTitleBar: o => ipcRenderer.send('myplan:titlebar', o),
   frameless: true,
   onOpacityReset: cb => ipcRenderer.on('myplan:opacity-reset', () => cb()),

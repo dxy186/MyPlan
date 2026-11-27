@@ -4,8 +4,9 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-import { callChat, getAiConfig, saveAiConfig } from '@/app/utils/ai';
-import { hmToMinutes, minutesToHM } from '@/app/utils/planning';
+import { AiConfig, callChat, getAiConfig, listModels, profileOf, saveAiProfile } from '@/app/utils/ai';
+import { PROVIDERS, ProviderId, providerOf } from '@/app/utils/ai-providers';
+import { KEYS, hmToMinutes, loadJSON, minutesToHM } from '@/app/utils/planning';
 import {
   ReminderSettings,
   loadReminderSettings,
@@ -143,69 +144,176 @@ function ScheduleSettingsPanel() {
 }
 
 function AiSettingsPanel() {
+  const [pid, setPid] = useState<ProviderId>('deepseek');
+  const [activeId, setActiveId] = useState<ProviderId>('deepseek');
+  const [apiUrl, setApiUrl] = useState('');
   const [key, setKey] = useState('');
   const [model, setModel] = useState('');
   const [visionModel, setVisionModel] = useState('');
   const [show, setShow] = useState(false);
   const [msg, setMsg] = useState('');
   const [testing, setTesting] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [modelFilter, setModelFilter] = useState('');
+  const [pickFor, setPickFor] = useState<'model' | 'vision'>('model');
+  const prov = providerOf(pid);
+
+  const loadProfile = async (id: ProviderId) => {
+    const saved = (await loadJSON<Partial<AiConfig>>(KEYS.aiConfig, {})) || {};
+    const p = profileOf(saved, id);
+    setApiUrl(p.apiUrl);
+    setKey(p.apiKey);
+    setModel(p.model);
+    setVisionModel(p.visionModel);
+    setModels(null);
+    setModelFilter('');
+  };
   useEffect(() => {
     getAiConfig().then(c => {
-      setKey(c.apiKey);
-      setModel(c.model);
-      setVisionModel(c.visionModel || 'deepseek-flash');
+      setPid(c.provider);
+      setActiveId(c.provider);
+      loadProfile(c.provider);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const profileNow = () => ({ apiUrl: apiUrl.trim() || prov.apiUrl, apiKey: key.trim(), model: model.trim() || prov.model, visionModel: visionModel.trim() || prov.visionModel || model.trim() });
   const save = async () => {
-    await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat', visionModel: visionModel.trim() || 'deepseek-flash' });
-    setMsg('✅ 已保存');
+    if (pid === 'custom' && !apiUrl.trim()) {
+      setMsg('❌ 自定义要填接口地址');
+      return false;
+    }
+    await saveAiProfile(pid, profileNow());
+    setActiveId(pid);
+    setMsg(`✅ 已保存，现在用的是「${prov.name}」`);
+    return true;
   };
   const test = async () => {
     setTesting(true);
     setMsg('');
     try {
-      await saveAiConfig({ apiKey: key.trim(), model: model.trim() || 'deepseek-chat', visionModel: visionModel.trim() || 'deepseek-flash' });
-      const r = await callChat([{ role: 'user', content: '只回复两个字：可以' }]);
-      setMsg(`✅ 连接成功，AI 回复：${String(r).slice(0, 30)}`);
+      if (!(await save())) return;
+      const r = await callChat([{ role: 'user', content: '只回复两个字：可以' }], { maxTokens: 50 });
+      setMsg(`✅ 连接成功（${prov.name} · ${profileNow().model}），AI 回复：${String(r).slice(0, 30)}`);
     } catch (e: any) {
       setMsg('❌ 连接失败：' + (e?.message || e));
     } finally {
       setTesting(false);
     }
   };
+  const fetchModels = async () => {
+    setMsg('');
+    try {
+      const list = await listModels(pid, profileNow());
+      setModels(list);
+      if (!list.length) setMsg('这家没有返回模型列表，直接手动填模型名就行。');
+    } catch (e: any) {
+      setModels(null);
+      setMsg('❌ 拿不到模型列表：' + (e?.message || e) + '（不是每家都支持，可以直接手动填）');
+    }
+  };
+  const shown = (models ?? []).filter(m => !modelFilter || m.toLowerCase().includes(modelFilter.toLowerCase())).slice(0, 60);
+
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🤖 AI 设置</Text>
-        <Text style={styles.muted}>「🏠 今天」里的 AI 和「目标拆解」都用这里的 Key。Key 只保存在这台电脑上。</Text>
-        <Field label="DeepSeek API Key" hint="在 platform.deepseek.com 申请">
+        <Text style={styles.muted}>
+          「🏠 今天」里的 AI、目标拆解、复盘点评都用这里选的服务商。每家的 Key 分开保存（只存在这台电脑上），切换时不用重填。现在在用：
+          <Text style={{ fontWeight: '700', color: '#1976D2' }}>{providerOf(activeId).name}</Text>
+        </Text>
+        <Field label="服务商">
+          <View style={styles.provWrap}>
+            {PROVIDERS.map(p => (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.provChip, pid === p.id && styles.provChipOn]}
+                onPress={() => {
+                  setPid(p.id);
+                  setMsg('');
+                  loadProfile(p.id);
+                }}
+              >
+                <Text style={[styles.provText, pid === p.id && styles.provTextOn]}>
+                  {p.name}
+                  {activeId === p.id ? ' ✓' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Field>
+        {prov.note ? <Text style={[styles.muted, { marginBottom: 6 }]}>💡 {prov.note}</Text> : null}
+        <Field label="接口地址" hint={pid === 'custom' ? '一般以 /v1/chat/completions 结尾' : '一般不用改'}>
+          <TextInput
+            style={[styles.input, { flex: 1, minWidth: 320 }]}
+            value={apiUrl}
+            onChangeText={setApiUrl}
+            placeholder={prov.apiUrl || 'https://…/v1/chat/completions'}
+            placeholderTextColor="#aaa"
+            autoCapitalize="none"
+          />
+        </Field>
+        <Field label="API Key" hint={prov.noKey ? '本机模型不用填' : prov.keyUrl ? `在 ${prov.keyUrl.replace(/^https?:\/\//, '').split('/')[0]} 申请` : undefined}>
           <TextInput
             style={[styles.input, { flex: 1, minWidth: 260 }]}
             value={key}
             onChangeText={setKey}
             secureTextEntry={!show}
-            placeholder="sk-..."
+            placeholder={prov.noKey ? '（不用填）' : prov.keyHint || '粘贴你的 Key'}
             placeholderTextColor="#aaa"
+            autoCapitalize="none"
           />
           <TouchableOpacity onPress={() => setShow(!show)}>
             <Text style={styles.link}>{show ? '隐藏' : '显示'}</Text>
           </TouchableOpacity>
+          {prov.keyUrl ? (
+            <TouchableOpacity onPress={() => Linking.openURL(prov.keyUrl as string)}>
+              <Text style={styles.link}>去申请 ↗</Text>
+            </TouchableOpacity>
+          ) : null}
         </Field>
         <Field label="模型">
-          <TextInput style={[styles.input, { width: 200 }]} value={model} onChangeText={setModel} placeholder="deepseek-chat" placeholderTextColor="#aaa" />
+          <TextInput style={[styles.input, { width: 260 }]} value={model} onChangeText={setModel} placeholder={prov.model || '模型名'} placeholderTextColor="#aaa" autoCapitalize="none" />
+          <TouchableOpacity onPress={() => { setPickFor('model'); fetchModels(); }}>
+            <Text style={styles.link}>获取模型列表</Text>
+          </TouchableOpacity>
         </Field>
-        <Field label="看图模型" hint="给 AI 发截图时用，要支持图片输入；DeepSeek 用 deepseek-flash">
-          <TextInput style={[styles.input, { width: 200 }]} value={visionModel} onChangeText={setVisionModel} placeholder="deepseek-flash" placeholderTextColor="#aaa" />
+        <Field label="看图模型" hint="给 AI 发截图时用，要选支持图片输入的模型">
+          <TextInput style={[styles.input, { width: 260 }]} value={visionModel} onChangeText={setVisionModel} placeholder={prov.visionModel || '可以和上面一样'} placeholderTextColor="#aaa" autoCapitalize="none" />
+          <TouchableOpacity onPress={() => { setPickFor('vision'); fetchModels(); }}>
+            <Text style={styles.link}>从列表选</Text>
+          </TouchableOpacity>
         </Field>
+        {models && models.length > 0 && (
+          <View style={styles.modelBox}>
+            <View style={styles.row}>
+              <Text style={styles.muted}>点一个填进「{pickFor === 'model' ? '模型' : '看图模型'}」（共 {models.length} 个）</Text>
+              <TextInput style={[styles.input, { width: 180, marginTop: 0 }]} value={modelFilter} onChangeText={setModelFilter} placeholder="搜索…" placeholderTextColor="#aaa" autoCapitalize="none" />
+              <TouchableOpacity onPress={() => setModels(null)}>
+                <Text style={styles.link}>收起</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.provWrap}>
+              {shown.map(m => (
+                <TouchableOpacity key={m} style={styles.modelChip} onPress={() => (pickFor === 'model' ? setModel(m) : setVisionModel(m))}>
+                  <Text style={styles.modelText}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
         <View style={styles.row}>
           <TouchableOpacity style={styles.btn} onPress={save}>
-            <Text style={styles.btnText}>保存</Text>
+            <Text style={styles.btnText}>保存并使用</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.btnGhost, testing && styles.disabled]} disabled={testing || !key.trim()} onPress={test}>
+          <TouchableOpacity style={[styles.btnGhost, testing && styles.disabled]} disabled={testing || (!key.trim() && !prov.noKey)} onPress={test}>
             <Text style={styles.btnGhostText}>{testing ? '测试中…' : '测试连接'}</Text>
           </TouchableOpacity>
         </View>
         {msg ? <Text style={msg.startsWith('❌') ? styles.err : styles.ok}>{msg}</Text> : null}
+        <Text style={[styles.muted, { marginTop: 10 }]}>
+          小提示：AI 要按固定格式回复才能自动改任务和排程，太小的模型容易不听话；中文用 DeepSeek、Kimi、智谱、通义都不错。网页版连不上的服务（被浏览器拦下）可以用桌面版试试。
+        </Text>
       </View>
       <PersonaCard />
     </ScrollView>
@@ -421,7 +529,15 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: '#1976D2', borderColor: '#1976D2' },
   chipText: { fontSize: 13, color: '#455A64' },
   chipTextOn: { color: '#fff', fontWeight: '600' },
-  row: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', gap: 6 },
+  provWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1 },
+  provChip: { borderWidth: 1, borderColor: '#CFD8DC', borderRadius: 16, paddingVertical: 5, paddingHorizontal: 12, backgroundColor: '#fff' },
+  provChipOn: { backgroundColor: '#1976D2', borderColor: '#1976D2' },
+  provText: { fontSize: 13, color: '#455A64' },
+  provTextOn: { color: '#fff', fontWeight: '600' },
+  modelBox: { backgroundColor: '#F7F9FC', borderRadius: 10, padding: 10, marginTop: 6, borderWidth: 1, borderColor: '#E3E8EF' },
+  modelChip: { borderWidth: 1, borderColor: '#D6E0EE', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, backgroundColor: '#fff' },
+  modelText: { fontSize: 12, color: '#37474F' },
   btn: { backgroundColor: '#1976D2', borderRadius: 8, paddingVertical: 9, paddingHorizontal: 16, marginRight: 10, alignSelf: 'flex-start', marginTop: 6 },
   btnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   btnGhost: { paddingVertical: 9, paddingHorizontal: 12, marginTop: 6 },
