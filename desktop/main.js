@@ -459,6 +459,10 @@ if (!app.requestSingleInstanceLock()) {
     return { shortcuts: setShortcutIcons(exePath()) };
   });
   ipcMain.handle('myplan:has-icon', async () => hasCustomIcon());
+  ipcMain.on('myplan:set-opacity', (_e, v) => {
+    const n = Number(v);
+    if (mainWindow && Number.isFinite(n)) mainWindow.setOpacity(Math.min(1, Math.max(0.5, n)));
+  });
   ipcMain.on('myplan:version', (e) => {
     e.returnValue = app.getVersion();
   });
