@@ -1292,7 +1292,8 @@ function CalendarMain() {
 
 // ---------- 样式 ----------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC', paddingTop: 5 },
+  // flexGrow + 不收缩：日历比窗口高时，底色跟着一起往下延伸（否则超出的部分没有底色，会出现明暗交界）
+  container: { flexGrow: 1, flexShrink: 0, flexBasis: 'auto', backgroundColor: '#F8FAFC', paddingTop: 5 },
   progressScroll: { marginVertical: 18, paddingLeft: 10, maxHeight: 64 },
   progressCard: { width: 215, backgroundColor: '#fff', borderRadius: 13, marginRight: 13, shadowColor: '#9EB4D0', shadowOpacity: 0.1, shadowOffset: { width: 0, height: 2 }, shadowRadius: 12, padding: 13, justifyContent: 'center', elevation: 2 },
   progressBarBg: { height: 9, backgroundColor: '#e4ecf2', borderRadius: 5, overflow: 'hidden', marginBottom: 8 },
