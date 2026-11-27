@@ -15,4 +15,5 @@ contextBridge.exposeInMainWorld('myplanDesktop', {
   resetIcon: () => ipcRenderer.invoke('myplan:reset-icon'),
   hasIcon: () => ipcRenderer.invoke('myplan:has-icon'),
   setOpacity: v => ipcRenderer.send('myplan:set-opacity', v),
+  onOpacityReset: cb => ipcRenderer.on('myplan:opacity-reset', () => cb()),
 });

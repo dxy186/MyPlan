@@ -324,6 +324,16 @@ function trayIcon() {
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: '打开 MyPlan', click: showWindow },
+    {
+      // 窗口调得太透明、看不见了：从托盘一键恢复
+      label: '窗口恢复不透明',
+      click: () => {
+        if (!mainWindow) return;
+        mainWindow.setOpacity(1);
+        showWindow();
+        mainWindow.webContents.send('myplan:opacity-reset');
+      },
+    },
     { type: 'separator' },
     {
       label: '开机自动启动',
@@ -461,7 +471,7 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.handle('myplan:has-icon', async () => hasCustomIcon());
   ipcMain.on('myplan:set-opacity', (_e, v) => {
     const n = Number(v);
-    if (mainWindow && Number.isFinite(n)) mainWindow.setOpacity(Math.min(1, Math.max(0.5, n)));
+    if (mainWindow && Number.isFinite(n)) mainWindow.setOpacity(Math.min(1, Math.max(0.05, n)));
   });
   ipcMain.on('myplan:version', (e) => {
     e.returnValue = app.getVersion();

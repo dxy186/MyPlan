@@ -80,6 +80,14 @@ export default function RootLayout() {
     return () => window.removeEventListener(APPEARANCE_EVENT, reload);
   }, []);
 
+  // 桌面版：托盘「窗口恢复不透明」→ 设置里也改回 100%
+  useEffect(() => {
+    const d = desktopBridge() as { onOpacityReset?: (cb: () => void) => void } | null;
+    d?.onOpacityReset?.(() => {
+      saveAppearance({ windowOpacity: 1 });
+    });
+  }, []);
+
   // 桌面版：整个窗口的透明度
   useEffect(() => {
     desktopBridge()?.setOpacity?.(ap.windowOpacity);
@@ -135,6 +143,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl+Shift+0：透明度调太低看不清时，一键恢复不透明
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === '0' || e.key === ')')) {
+        e.preventDefault();
+        saveAppearance({ windowOpacity: 1, cardOpacity: 1, contentOpacity: 1 });
+        return;
+      }
       // Ctrl+B / ⌘B：收起 / 展开侧边栏
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();

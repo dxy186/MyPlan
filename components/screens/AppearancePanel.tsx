@@ -1,6 +1,6 @@
 /** 设置 → 🎨 外观：皮肤、背景图、透明度、缩放、侧边栏、动画 */
 import React, { useEffect, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { fileToImage, pickImageFiles } from '@/components/assistant/image-attach';
 import {
@@ -38,6 +38,45 @@ function Steps({
           </TouchableOpacity>
         );
       })}
+    </View>
+  );
+}
+
+/** 拖动条 + 数字 + −/＋：百分比，min~max（整数 %） */
+function Slider({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (pct: number) => void }) {
+  const [txt, setTxt] = useState(String(value));
+  useEffect(() => setTxt(String(value)), [value]);
+  const clampPct = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
+  const commit = (n: number) => {
+    if (!Number.isFinite(n)) return setTxt(String(value));
+    onChange(clampPct(n));
+  };
+  return (
+    <View style={styles.sliderRow}>
+      <TouchableOpacity style={styles.stepBtn} onPress={() => commit(value - 5)}>
+        <Text style={styles.stepText}>−</Text>
+      </TouchableOpacity>
+      {React.createElement('input', {
+        type: 'range',
+        min,
+        max,
+        step: 1,
+        value,
+        onChange: (e: { target: { value: string } }) => commit(Number(e.target.value)),
+        style: { flex: 1, minWidth: 160, maxWidth: 360, accentColor: '#1976D2', cursor: 'pointer' },
+      })}
+      <TouchableOpacity style={styles.stepBtn} onPress={() => commit(value + 5)}>
+        <Text style={styles.stepText}>＋</Text>
+      </TouchableOpacity>
+      <TextInput
+        style={styles.pctInput}
+        value={txt}
+        onChangeText={t => setTxt(t.replace(/[^0-9]/g, ''))}
+        onBlur={() => commit(Number(txt))}
+        onSubmitEditing={() => commit(Number(txt))}
+        keyboardType="numeric"
+      />
+      <Text style={styles.pctSign}>%</Text>
     </View>
   );
 }
@@ -137,8 +176,8 @@ export default function AppearancePanel() {
         {!!msg && <Text style={styles.msg}>{msg}</Text>}
         {wall && (
           <>
-            <Row label="背景透出" hint="内容区底色有多透：越低，背景图越清楚。">
-              <Steps value={ap.contentOpacity} options={[0, 0.2, 0.4, 0.6, 0.8, 1]} fmt={v => `${Math.round((1 - v) * 100)}%`} onPick={v => set({ contentOpacity: v })} />
+            <Row label="背景透出" hint="内容区底色有多透：越高，背景图越清楚。">
+              <Slider value={Math.round((1 - ap.contentOpacity) * 100)} min={0} max={100} onChange={p => set({ contentOpacity: 1 - p / 100 })} />
             </Row>
             <Row label="背景模糊">
               <Steps value={ap.wallpaperBlur} options={[0, 4, 10, 20]} fmt={v => (v === 0 ? '不模糊' : v <= 4 ? '轻' : v <= 10 ? '中' : '重')} onPick={v => set({ wallpaperBlur: v })} />
@@ -154,13 +193,19 @@ export default function AppearancePanel() {
       <View style={styles.card}>
         <Text style={styles.title}>🔍 透明度</Text>
         <Row label="卡片不透明度" hint="白色卡片、面板有多实：调低能透出底色或背景图。字不受影响。">
-          <Steps value={ap.cardOpacity} options={[0.4, 0.6, 0.75, 0.9, 1]} onPick={v => set({ cardOpacity: v })} />
+          <Slider value={Math.round(ap.cardOpacity * 100)} min={5} max={100} onChange={p => set({ cardOpacity: p / 100 })} />
         </Row>
         <Row
           label="整个窗口的不透明度"
-          hint={isDesktop ? '整个 MyPlan 窗口变透明，能看到后面的桌面和其他窗口（只在桌面版里有）。' : '这个只在桌面版里能用（能看到窗口后面的桌面）；网页版可以用上面的背景图 + 透明度。'}
+          hint={
+            isDesktop
+              ? '整个 MyPlan 窗口变透明，能看到后面的桌面和其他窗口。调太低看不清了：按 Ctrl+Shift+0，或右键右下角托盘图标 →「窗口恢复不透明」。'
+              : '这个只在桌面版里能用（能看到窗口后面的桌面）；网页版可以用上面的背景图 + 透明度。'
+          }
         >
-          <Steps value={ap.windowOpacity} options={[0.6, 0.7, 0.8, 0.9, 1]} onPick={v => (isDesktop ? set({ windowOpacity: v }) : setMsg('窗口透明只在桌面版里有'))} />
+          {isDesktop ? (
+            <Slider value={Math.round(ap.windowOpacity * 100)} min={5} max={100} onChange={p => set({ windowOpacity: p / 100 })} />
+          ) : null}
         </Row>
       </View>
 
@@ -193,6 +238,7 @@ export default function AppearancePanel() {
         style={styles.reset}
         onPress={async () => {
           if (!(await confirmAsync('外观恢复成默认（经典深蓝、不透明、100% 大小）？背景图会保留，可以单独去掉。'))) return;
+          // 快捷键 Ctrl+Shift+0 也能只恢复透明度
           await resetAppearance();
           setAp(DEFAULT_APPEARANCE);
         }}
@@ -232,5 +278,10 @@ const styles = StyleSheet.create({
   del: { color: '#E53935', fontSize: 14 },
   msg: { fontSize: 13, color: '#2E7D32', marginTop: 8 },
   reset: { marginTop: 18, paddingVertical: 8 },
+  sliderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  stepBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: '#CFD8DC', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  stepText: { fontSize: 16, color: '#455A64', fontWeight: '700' },
+  pctInput: { width: 54, borderWidth: 1, borderColor: '#D6E0EE', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 8, fontSize: 14, textAlign: 'right', backgroundColor: '#fff' },
+  pctSign: { fontSize: 14, color: '#455A64' },
   link: { color: '#1976D2', fontSize: 14, fontWeight: '600' },
 });
