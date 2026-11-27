@@ -505,6 +505,22 @@ if (!app.requestSingleInstanceLock()) {
     return { closeAction: closeAction(), hotkey: currentHotkey(), hotkeyOk };
   });
   ipcMain.on('myplan:quit', () => quitApp());
+  // AI 请求由后台转发：没有浏览器的跨域限制（本机 Ollama、Claude 等网页直连不了的也能用）
+  ipcMain.handle('myplan:http', async (_e, req) => {
+    const url = String((req && req.url) || '');
+    if (!/^https?:\/\//i.test(url)) return { status: 0, text: '地址要以 http:// 或 https:// 开头' };
+    try {
+      const r = await fetch(url, {
+        method: req.method || 'GET',
+        headers: req.headers || {},
+        body: req.body,
+        signal: AbortSignal.timeout(180000),
+      });
+      return { status: r.status, text: await r.text() };
+    } catch (err) {
+      return { status: 0, text: JSON.stringify({ error: { message: '连不上：' + ((err && err.message) || err) } }) };
+    }
+  });
   // 按皮肤 / 背景调右上角三个按钮的颜色
   ipcMain.on('myplan:titlebar', (_e, o) => {
     try {

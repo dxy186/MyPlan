@@ -488,7 +488,7 @@ export default function AssistantScreen() {
     setLoading(true);
     try {
       const cfg = await getAiConfig();
-      if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到「⚙️ 设置 → 🤖 AI」里填入 DeepSeek API Key。');
+      if (!cfg.apiKey) throw new Error('还没有配置 AI Key：到「⚙️ 设置 → 🤖 AI」里填入 API Key（可以选 DeepSeek、Kimi、智谱等任一家）。');
       const fresh = await loadPlanState();
       setState(fresh);
       const insights = buildInsights(fresh.timeLogs, fresh.goals, await loadBlockLog(), reasonSummary(await loadReviews()));
@@ -602,7 +602,7 @@ export default function AssistantScreen() {
       }
       let msg = e instanceof SyntaxError ? 'AI 这次没回好，请再发一次。' : e?.message || String(e);
       if (pics.length && /image|vision|model/i.test(msg)) {
-        msg = `看图失败：${msg}。可以到「⚙️ 设置 → 🤖 AI」检查「看图模型」（DeepSeek 用 deepseek-flash），或者把图里的要求打成文字发给我。`;
+        msg = `看图失败：${msg}。可以到「⚙️ 设置 → 🤖 AI」检查「看图模型」（要选支持图片的模型），或者把图里的要求打成文字发给我。`;
         setImages(pics);
       }
       setError(msg);
