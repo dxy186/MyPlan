@@ -45,6 +45,7 @@ import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from '
 import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
 import { parseDdlLine } from '@/components/data/quick-parse';
+import RichText from './RichText';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
 import PhraseCard from './PhraseCard';
@@ -274,6 +275,14 @@ function DayTimeline({
     </View>
   );
 }
+
+/** 输入框上方的提问示例：让人知道除了加任务，还能找 AI 商量事情 */
+const IDEAS = [
+  '假期有 4 天，想玩游戏、写点作业、练琴，还想出去玩，帮我规划一下',
+  '这周事情太多了，帮我看看哪些可以往后放',
+  '我总是拖着不写论文，有什么办法？',
+  '今天还剩什么？先做哪个比较好？',
+];
 
 /** 只回了「好的 / 收到 / 明白」这类话 */
 const HOLLOW_RE = /^(好的?|好嘞|好哒|收到|明白了?|了解|知道了|没问题|ok|okay|嗯+|行|可以)[，,。.!！~～\s]*(?:♪)?$/i;
@@ -846,6 +855,16 @@ export default function AssistantScreen() {
             ))}
           </View>
         )}
+        {!input.trim() && images.length === 0 && !loading && (
+          <View style={styles.ideaRow}>
+            <Text style={styles.ideaLabel}>也可以这样问：</Text>
+            {IDEAS.map(q => (
+              <TouchableOpacity key={q} style={styles.ideaChip} onPress={() => setInput(q)}>
+                <Text style={styles.ideaText}>{q}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
         <TextInput
           ref={inputRef}
           style={styles.input}
@@ -918,7 +937,11 @@ export default function AssistantScreen() {
         <View style={styles.thread}>
           {recent.map((m, i) => (
             <View key={i} style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAi]}>
-              <Text style={m.role === 'user' ? styles.bubbleUserText : styles.bubbleAiText}>{m.content}</Text>
+              {m.role === 'user' ? (
+                <Text style={styles.bubbleUserText}>{m.content}</Text>
+              ) : (
+                <RichText text={m.content} style={styles.bubbleAiText} />
+              )}
             </View>
           ))}
           {loading && <Text style={styles.muted}>正在结合你的任务进度思考…</Text>}
@@ -1026,6 +1049,10 @@ export default function AssistantScreen() {
 }
 
 const styles = StyleSheet.create({
+  ideaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 },
+  ideaLabel: { fontSize: 12, color: '#90A4AE' },
+  ideaChip: { borderWidth: 1, borderColor: '#D6E0EE', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#F7F9FC' },
+  ideaText: { fontSize: 12, color: '#546E7A' },
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   title: { fontSize: 24, fontWeight: '700', color: '#1a1a2e', marginBottom: 6 },
   subtitle: { fontSize: 14, color: '#666', marginBottom: 16, lineHeight: 20 },
