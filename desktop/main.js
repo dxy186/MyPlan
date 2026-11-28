@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, session, globalShortcut } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, session, globalShortcut, clipboard } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -598,6 +598,15 @@ if (!app.requestSingleInstanceLock()) {
       if (visible) mainWindow.show();
       old.destroy();
     });
+  });
+  // 系统剪贴板里的图片（微信截图等，网页拿不到时用）
+  ipcMain.on('myplan:clipboard-image', (e) => {
+    try {
+      const img = clipboard.readImage();
+      e.returnValue = img && !img.isEmpty() ? img.toDataURL() : '';
+    } catch {
+      e.returnValue = '';
+    }
   });
   ipcMain.on('myplan:glass', (e) => {
     e.returnValue = glassOn;

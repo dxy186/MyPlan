@@ -38,7 +38,7 @@ import GapPanel from './GapPanel';
 import StreakBadge from './StreakBadge';
 import { appendDiaryText } from '@/components/data/diary';
 import { DDL_LIKE, addEvent, eventsOn, loadEvents, looksYearly } from '@/components/data/events';
-import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromTransfer, pickImageFiles } from './image-attach';
+import { AttachedImage, IMAGE_PROMPT, visionOpts, MAX_IMAGES, fileToImage, imagesFromClipboardFallback, imagesFromTransfer, pickImageFiles } from './image-attach';
 import { PriDot } from '@/components/data/priority';
 import WeeklyCard from './WeeklyCard';
 import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from './FollowUp';
@@ -355,7 +355,7 @@ export default function AssistantScreen() {
   const addFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
     try {
-      const list = await Promise.all(files.slice(0, MAX_IMAGES).map(fileToImage));
+      const list = await Promise.all(files.slice(0, MAX_IMAGES).map(f => fileToImage(f)));
       setImages(prev => [...prev, ...list].slice(0, MAX_IMAGES));
       setError('');
     } catch (e: any) {
@@ -370,6 +370,16 @@ export default function AssistantScreen() {
       if (files.length) {
         e.preventDefault();
         addFiles(files);
+        return;
+      }
+      // 粘贴的东西里没有文字（多半是微信 / QQ 截图）：换几种办法再找图片
+      const txt = e.clipboardData?.getData('text/plain') || '';
+      if (!txt.trim()) {
+        const dt = e.clipboardData;
+        imagesFromClipboardFallback(dt).then(more => {
+          if (more.length) addFiles(more);
+          else setError('剪贴板里没找到图片。微信截图可以先点「完成」或「复制」再粘贴；还不行就把截图另存为图片，点「🖼️ 图片」上传。');
+        });
       }
     };
     const onDragOver = (e: DragEvent) => {
