@@ -236,6 +236,11 @@ export default function AppearancePanel() {
       </View>
 
       <WindowPrefsCard />
+      {process.env.EXPO_PUBLIC_BUILD_TIME ? (
+        <Text style={[styles.hint, { marginTop: 14 }]}>
+          这一版页面更新于 {process.env.EXPO_PUBLIC_BUILD_TIME}（美东时间）。网页版刚更新过但没看到新功能：按 Ctrl+F5 强制刷新。
+        </Text>
+      ) : null}
 
       <TouchableOpacity
         style={styles.reset}

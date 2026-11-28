@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: 打包网页版
-        run: npx expo export -p web
+        run: EXPO_PUBLIC_BUILD_TIME="$(TZ=America/New_York date '+%Y-%m-%d %H:%M')" npx expo export -p web
 
       - name: 加 404 兜底页
         run: cp "dist/+not-found.html" dist/404.html
