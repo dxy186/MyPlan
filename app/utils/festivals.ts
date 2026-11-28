@@ -37,13 +37,21 @@ const NTH_WEEKDAY: [number, number, number, string][] = [
 /** 农历「月-日」（数字）→ 节日 */
 const LUNAR: Record<string, string> = {
   '1-1': '春节',
+  '1-5': '破五',
+  '1-7': '人日',
   '1-15': '元宵节',
   '2-2': '龙抬头',
+  '2-12': '花朝节',
+  '3-3': '上巳节',
+  '4-8': '浴佛节',
   '5-5': '端午节',
+  '6-6': '天贶节',
   '7-7': '七夕',
   '7-15': '中元节',
   '8-15': '中秋节',
   '9-9': '重阳节',
+  '10-1': '寒衣节',
+  '10-15': '下元节',
   '12-8': '腊八节',
   '12-23': '小年',
 };
@@ -162,6 +170,73 @@ function nthWeekday(year: number, month: number, nth: number, wd: number): numbe
   return 1 + ((wd - first + 7) % 7) + (nth - 1) * 7;
 }
 
+// ---------- 黄历里按节气 + 干支日推的日子 ----------
+const DAY_MS = 86400000;
+function dayNum(y: number, m: number, d: number) {
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(2000, 0, 1)) / DAY_MS);
+}
+/** 天干序号（0=甲 … 9=癸）；2000-01-01 是戊午日 */
+function stemOf(n: number) {
+  return (((4 + n) % 10) + 10) % 10;
+}
+/** 地支序号（0=子 … 11=亥） */
+function branchOf(n: number) {
+  return (((6 + n) % 12) + 12) % 12;
+}
+function termDayNum(year: number, name: string): number | null {
+  for (let m = 1; m <= 12; m++) for (const t of termsOfMonth(year, m)) if (t.name === name) return dayNum(year, m, t.day);
+  return null;
+}
+/** 从 start（含当天）起第 k 个满足条件的日子 */
+function nthFrom(start: number, k: number, ok: (n: number) => boolean) {
+  let n = start;
+  let c = 0;
+  for (let i = 0; i < 400; i++, n++) if (ok(n) && ++c === k) return n;
+  return null;
+}
+const folkCache = new Map<number, Map<number, string[]>>();
+/** 某年的黄历日子：三伏、数九、入梅出梅、春社秋社、寒食 → dayNum → 名字 */
+function folkDays(year: number): Map<number, string[]> {
+  const hit = folkCache.get(year);
+  if (hit) return hit;
+  const map = new Map<number, string[]>();
+  const add = (n: number | null, name: string) => {
+    if (n === null) return;
+    (map.get(n) ?? map.set(n, []).get(n)!).push(name);
+  };
+  const GENG = 6, WU = 4, BING = 2, WEI = 7;
+  const xiazhi = termDayNum(year, '夏至');
+  const liqiu = termDayNum(year, '立秋');
+  if (xiazhi !== null) {
+    add(nthFrom(xiazhi, 3, n => stemOf(n) === GENG), '初伏');
+    add(nthFrom(xiazhi, 4, n => stemOf(n) === GENG), '中伏');
+  }
+  if (liqiu !== null) {
+    const mofu = nthFrom(liqiu, 1, n => stemOf(n) === GENG);
+    add(mofu, '末伏');
+    if (mofu !== null) add(mofu + 10, '出伏');
+    add(nthFrom(liqiu + 1, 5, n => stemOf(n) === WU), '秋社');
+  }
+  const lichun = termDayNum(year, '立春');
+  if (lichun !== null) add(nthFrom(lichun + 1, 5, n => stemOf(n) === WU), '春社');
+  const mangzhong = termDayNum(year, '芒种');
+  if (mangzhong !== null) add(nthFrom(mangzhong, 1, n => stemOf(n) === BING), '入梅');
+  const xiaoshu = termDayNum(year, '小暑');
+  if (xiaoshu !== null) add(nthFrom(xiaoshu, 1, n => branchOf(n) === WEI), '出梅');
+  const qingming = termDayNum(year, '清明');
+  if (qingming !== null) add(qingming - 1, '寒食节');
+  // 数九：冬至起每 9 天一个「九」（今年冬至起的和去年冬至延续到今年的）
+  const NINE = ['一九', '二九', '三九', '四九', '五九', '六九', '七九', '八九', '九九'];
+  for (const y of [year - 1, year]) {
+    const dz = termDayNum(y, '冬至');
+    if (dz === null) continue;
+    NINE.forEach((name, i) => add(dz + i * 9, name));
+    add(dz + 81, '出九');
+  }
+  folkCache.set(year, map);
+  return map;
+}
+
 /** 这一天的节日 / 节气（按重要程度排：农历节日 → 公历节日 → 节气） */
 export function festivalsOn(dateStr: string): Festival[] {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -182,6 +257,11 @@ export function festivalsOn(dateStr: string): Festival[] {
   if (SOLAR[md]) out.push({ name: SOLAR[md], kind: 'solar' });
   for (const [mm, nth, wd, name] of NTH_WEEKDAY) if (mm === m && nthWeekday(y, m, nth, wd) === d) out.push({ name, kind: 'solar' });
   for (const t of termsOfMonth(y, m)) if (t.day === d) out.push({ name: t.name, kind: 'term' });
+  for (const name of folkDays(y).get(dayNum(y, m, d)) ?? []) {
+    // 冬至当天本身就是「一九」，不重复写
+    if (name === '一九' && out.some(f => f.name === '冬至')) continue;
+    out.push({ name, kind: 'term' });
+  }
   return out;
 }
 
