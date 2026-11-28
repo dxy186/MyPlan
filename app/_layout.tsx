@@ -152,6 +152,31 @@ export default function RootLayout() {
     el.textContent = css;
   }, [css]);
 
+  // 网页版：页面开着很久没刷新时，发现网站已经更新就提醒一下（旧页面里还是旧功能）
+  const [newVersion, setNewVersion] = useState(false);
+  useEffect(() => {
+    if (typeof document === 'undefined' || (desktopBridge() as { version?: string } | null)?.version) return;
+    const mine = [...document.scripts].map(x => x.src).find(x => /\/entry-[\w]+\.js/.test(x));
+    if (!mine) return;
+    const myName = mine.split('/').pop();
+    const check = async () => {
+      try {
+        const html = await fetch(`${location.pathname.replace(/[^/]*$/, '')}?v=${Date.now()}`, { cache: 'no-store' }).then(r => r.text());
+        const latest = html.match(/entry-[\w]+\.js/)?.[0];
+        if (latest && myName && latest !== myName) setNewVersion(true);
+      } catch {}
+    };
+    const iv = setInterval(check, 5 * 60 * 1000);
+    const onVis = () => document.visibilityState === 'visible' && check();
+    document.addEventListener('visibilitychange', onVis);
+    const t0 = setTimeout(check, 30 * 1000);
+    return () => {
+      clearInterval(iv);
+      clearTimeout(t0);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+
   const toggleSidebar = () => {
     setAp(a => ({ ...a, sidebarCollapsed: !a.sidebarCollapsed }));
     saveAppearance({ sidebarCollapsed: !collapsed });
@@ -266,6 +291,11 @@ export default function RootLayout() {
           ))}
         </View>
       ) : null}
+      {newVersion ? (
+        <TouchableOpacity style={styles.updateBar} onPress={() => location.reload()}>
+          <Text style={styles.updateText}>✨ MyPlan 更新了，点这里刷新（不刷新的话用的还是旧功能）</Text>
+        </TouchableOpacity>
+      ) : null}
       <ReminderService />
       <BreakdownHost />
       <CelebrationHost />
@@ -332,6 +362,8 @@ const styles = StyleSheet.create({
   },
   sidebarCollapsed: { width: 68, paddingHorizontal: 8 },
   // 右边留出 150px 给系统的 最小化 / 最大化 / 关闭 按钮
+  updateBar: { position: 'absolute', top: 6, left: '50%' as unknown as number, transform: [{ translateX: -190 }], width: 380, zIndex: 80, backgroundColor: '#5E35B1', borderRadius: 18, paddingVertical: 7, paddingHorizontal: 14, alignItems: 'center' },
+  updateText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   winBtns: { position: 'absolute', top: 0, right: 0, flexDirection: 'row', zIndex: 60 },
   winBtn: { width: 46, height: 30, alignItems: 'center', justifyContent: 'center' },
   winBtnClose: {},

@@ -295,6 +295,28 @@ const IDEAS = [
   '今天还剩什么？先做哪个比较好？',
 ];
 
+/** 新回答和最近几条 AI 回答的相似度（三字片段重合率）超过 80%：多半是照抄 */
+function sameAsBefore(reply: string, h: Msg[]): boolean {
+  const norm = (x: string) => x.replace(/[\s\p{P}\p{S}]/gu, '');
+  const grams = (x: string) => {
+    const g = new Set<string>();
+    for (let i = 0; i + 3 <= x.length; i++) g.add(x.slice(i, i + 3));
+    return g;
+  };
+  const a = grams(norm(reply));
+  if (a.size < 40) return false;
+  return h
+    .filter(m => m.role === 'assistant')
+    .slice(-8)
+    .some(m => {
+      const b = grams(norm(m.content));
+      if (b.size < 40) return false;
+      let n = 0;
+      for (const g of a) if (b.has(g)) n++;
+      return n / Math.min(a.size, b.size) > 0.8;
+    });
+}
+
 /** 只回了「好的 / 收到 / 明白」这类话 */
 const HOLLOW_RE = /^(好的?|好嘞|好哒|收到|明白了?|了解|知道了|没问题|ok|okay|嗯+|行|可以)[，,。.!！~～\s]*(?:♪)?$/i;
 /** 用户自己只是在应答（谢谢 / 好的 / 嗯）：这时 AI 回「好的」是正常的 */
@@ -623,6 +645,23 @@ export default function AssistantScreen() {
           )
         );
       }
+      // 回答和以前的某次几乎一模一样（照抄了旧方案，新的限制没管）：去掉对话历史，要求它重新排
+      if (result.reply.trim() && sameAsBefore(result.reply, h1)) {
+        result = normalizeAiResult(
+          await callChatJSON<unknown>(
+            [
+              msgs[0],
+              msgs[1],
+              msgs[msgs.length - 1],
+              {
+                role: 'user',
+                content: `（你刚才差点把以前的回答原样又发了一遍。不要参考以前的方案，只按「当前数据」和上面的限制重新安排这件事：${text.slice(0, 300)}）`,
+              },
+            ],
+            aiOpts
+          )
+        );
+      }
       const fresh2 = result.actions.map(a =>
         // 保险：AI 把 DDL / 作业 / 考试这类记成了重要事件 → 改回 DDL 任务
         a.type === 'add_event' && DDL_LIKE.test(String((a as any).title || ''))
@@ -730,6 +769,8 @@ export default function AssistantScreen() {
         return;
       }
       if (carried.length && fresh2.length) reply += `\n（上一个还没应用的 ${carried.length} 项也一起放进了这个方案。）`;
+      // AI 自己写了这句就不再重复加
+      reply = reply.replace(/\n*👉?\s*点下面的「应用」后才会生效。?/g, '').trimEnd();
       if (actions.length) reply += '\n👉 点下面的「应用」后才会生效。';
       saveHistory([
         ...h1,
