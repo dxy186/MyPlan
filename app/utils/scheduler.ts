@@ -355,7 +355,9 @@ export function generateSchedule(
   // 用户亲手定了「那天几点」的任务：以任务为主，就排在那个时间，哪怕和固定日程冲突（会标出冲突）；
   // 其他自动排的任务会避开它。时间已经过去的，退回自动排。
   const pinnedIds = new Set<string>();
-  for (const task of ordered) {
+  // 先钉早就定好的，后定的和它撞了再往后挪
+  const byCreated = [...ordered].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  for (const task of byCreated) {
     const d = task.notBefore;
     if (task.startMin === undefined || !d || !days.includes(d)) continue;
     if (d === start && opts.notBeforeMin !== undefined && task.startMin < opts.notBeforeMin) continue;
@@ -363,6 +365,15 @@ export function generateSchedule(
     // 定了几点的任务也遵守「一次最多专注」：超过就从那个时间起切成几块，中间按「块之间休息」隔开
     const wd = weekdayOf(d);
     let at = task.startMin;
+    // 和这天已经钉好的任务撞了（两个都定了同一个时间）：顺延到它后面，不叠在一起
+    const pinnedThatDay = () => items.filter(i => i.type === 'task' && i.date === d && pinnedIds.has(i.taskId as string));
+    let movedFrom: string | null = null;
+    for (let guard = 0; guard < 20; guard++) {
+      const hit = pinnedThatDay().find(i => i.startMin < at + Math.min(dur, opts.maxFocusMin || dur) && i.endMin > at);
+      if (!hit) break;
+      movedFrom = movedFrom ?? hit.title;
+      at = hit.endMin + opts.breakMin;
+    }
     let left = dur;
     let lastIv: Interval | null = null;
     while (left > 0 && at < 24 * 60) {
@@ -385,7 +396,11 @@ export function generateSchedule(
         energyCost: task.energyCost,
         slotKey: slotKeyOfMinute(iv.start),
         quadrant: task.quadrant,
-        note: clash.length ? `你定的时间，和固定日程「${clash.join('、')}」冲突` : undefined,
+        note: clash.length
+          ? `你定的时间，和固定日程「${clash.join('、')}」冲突`
+          : movedFrom && iv.start !== task.startMin
+            ? `原定 ${String(Math.floor((task.startMin as number) / 60)).padStart(2, '0')}:${String((task.startMin as number) % 60).padStart(2, '0')}，和「${movedFrom}」撞了，顺延到这里`
+            : undefined,
       });
       lastIv = iv;
       left -= len;

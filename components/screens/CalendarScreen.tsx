@@ -1030,7 +1030,15 @@ function CalendarMain() {
                               {!item.completed &&
                                 (() => {
                                   const b = firstBlock(item.id);
-                                  if (b) return <Text style={styles.slotText}>{`  🕐 ${b.date === item.date ? '' : b.date.slice(5) + ' '}${minutesToHM(b.startMin)}–${minutesToHM(b.endMin)}`}</Text>;
+                                  if (b) {
+                                    // 一个任务被切成几段（一次最多专注）：这天的每一段都列出来，不只显示第一段
+                                    const segs = scheduled
+                                      .filter(i => i.taskId === item.id && i.date === b.date)
+                                      .sort((x, y) => x.startMin - y.startMin)
+                                      .map(i => `${minutesToHM(i.startMin)}–${minutesToHM(i.endMin)}`)
+                                      .join('、');
+                                    return <Text style={styles.slotText}>{`  🕐 ${b.date === item.date ? '' : b.date.slice(5) + ' '}${segs}`}</Text>;
+                                  }
                                   if (unscheduledIds.has(item.id)) return <Text style={styles.slotWarn}>  ⚠️ 这天排不下</Text>;
                                   return null;
                                 })()}
