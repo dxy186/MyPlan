@@ -605,6 +605,21 @@ if (!app.requestSingleInstanceLock()) {
   // 玻璃窗口没有系统按钮：页面上的 — □ × 调这里
   ipcMain.on('myplan:win', (_e, a) => {
     if (!mainWindow) return;
+    if (a === 'restore') {
+      // Esc：全屏 / 最大化（包括透明窗口自己的「铺满屏幕」）时缩回原来的大小
+      if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false);
+      else if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      else if (savedBounds) {
+        const { screen } = require('electron');
+        const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+        const cur = mainWindow.getBounds();
+        if (cur.x === area.x && cur.y === area.y && cur.width === area.width && cur.height === area.height) {
+          mainWindow.setBounds(savedBounds);
+          savedBounds = null;
+        }
+      }
+      return;
+    }
     if (a === 'min') mainWindow.minimize();
     else if (a === 'close') mainWindow.close();
     else if (a === 'max') {
