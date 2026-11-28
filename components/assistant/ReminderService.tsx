@@ -99,6 +99,8 @@ export default function ReminderService() {
       setToasts(prev => [...prev.filter(t => t.key !== r.key), r].slice(-3));
       beep();
       if (!r.system) flashTitle('⏰ 提醒');
+      // 桌面版：任务栏 / 托盘图标闪烁，点开 MyPlan 就停
+      (window as unknown as { myplanDesktop?: { flash?: () => void } }).myplanDesktop?.flash?.();
     };
     window.addEventListener(IN_APP_REMINDER_EVENT, onReminder);
     // 开始计时了：收起这个任务的「该开始了」提醒，停止标题闪烁
@@ -107,6 +109,7 @@ export default function ReminderService() {
       if (!t) return;
       setToasts(prev => prev.filter(x => x.taskId !== t.taskId));
       stopFlash();
+      (window as unknown as { myplanDesktop?: { flashStop?: () => void } }).myplanDesktop?.flashStop?.();
     };
     window.addEventListener(TIMER_CHANGED_EVENT, onTimer);
     return () => {
