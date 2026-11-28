@@ -41,6 +41,29 @@ const timeOf = (iso: string) => {
 
 type Menu = { x: number; y: number; m: ChatMsg };
 
+/** 用原生事件接右键：不经过 React / 触摸组件，哪个浏览器、桌面版都能用 */
+function RightClick({ onMenu, right, children }: { onMenu: (x: number, y: number) => void; right: boolean; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const cb = useRef(onMenu);
+  cb.current = onMenu;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cb.current(e.clientX, e.clientY);
+    };
+    el.addEventListener('contextmenu', h);
+    return () => el.removeEventListener('contextmenu', h);
+  }, []);
+  return React.createElement(
+    'div',
+    { ref, style: { display: 'flex', flexDirection: 'column', alignItems: right ? 'flex-end' : 'flex-start' } },
+    children
+  );
+}
+
 export default function ChatThread({
   history,
   loading,
@@ -118,7 +141,7 @@ export default function ChatThread({
         {query ? (
           <Text style={styles.muted}>找到 {list.length} 条{list.length >= 100 ? '（只显示最近 100 条）' : ''}</Text>
         ) : (
-          <Text style={styles.muted}>右键（手机长按）一条消息：引用 / 记进日记 / 复制</Text>
+          <Text style={styles.muted}>右键一条消息，或点它右下角的 ⋯：引用 / 记进日记 / 复制</Text>
         )}
         <View style={{ flex: 1 }} />
         <TouchableOpacity
@@ -154,7 +177,17 @@ export default function ChatThread({
               ) : (
                 <RichText text={m.content} style={styles.bubbleAiText} />
               )}
-              <Text style={[styles.time, m.role === 'user' && { color: '#BBDEFB' }]}>{timeOf(m.at)}</Text>
+              <View style={styles.metaRow}>
+                <Text style={[styles.time, m.role === 'user' && { color: '#BBDEFB' }]}>{timeOf(m.at)}</Text>
+                {/* 右键不方便时点这里也能打开菜单 */}
+                <TouchableOpacity
+                  onPress={(e: any) => openMenu({ clientX: e?.nativeEvent?.pageX ?? 200, clientY: e?.nativeEvent?.pageY ?? 200 }, m)}
+                  style={styles.moreBtn}
+                  accessibilityLabel="更多操作"
+                >
+                  <Text style={[styles.moreDots, m.role === 'user' && { color: '#E3F2FD' }]}>⋯</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           );
           return (
@@ -167,12 +200,7 @@ export default function ChatThread({
                 </View>
               )}
               {/* 网页上用原生 div 接右键；手机上用长按 */}
-              {React.createElement(
-                'div',
-                {
-                  onContextMenu: (e: MouseEvent) => openMenu(e, m),
-                  style: { display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' },
-                },
+              <RightClick right={m.role === 'user'} onMenu={(x, y) => openMenu({ clientX: x, clientY: y }, m)}>
                 <TouchableOpacity
                   activeOpacity={0.85}
                   delayLongPress={450}
@@ -183,7 +211,7 @@ export default function ChatThread({
                 >
                   {bubble}
                 </TouchableOpacity>
-              )}
+              </RightClick>
             </View>
           );
         })}
@@ -257,7 +285,10 @@ const styles = StyleSheet.create({
   bubbleAi: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E3E8EF' },
   bubbleUserText: { color: '#fff', fontSize: 15, lineHeight: 22 },
   bubbleAiText: { color: '#263238', fontSize: 15, lineHeight: 23 },
-  time: { fontSize: 10, color: '#B0BEC5', marginTop: 4, alignSelf: 'flex-end' },
+  time: { fontSize: 10, color: '#B0BEC5' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 4 },
+  moreBtn: { paddingHorizontal: 4, borderRadius: 6 },
+  moreDots: { fontSize: 14, color: '#90A4AE', fontWeight: '700', lineHeight: 14 },
   quote: { borderLeftWidth: 3, borderLeftColor: '#90CAF9', paddingLeft: 8, marginBottom: 6 },
   quoteOnBlue: { borderLeftColor: '#BBDEFB' },
   quoteText: { fontSize: 12, color: '#78909C' },
