@@ -824,16 +824,11 @@ function CalendarMain() {
   };
 
   // ---------- 主渲染 ----------
+  // 今日事项 = 日历格子里今天的事项（含今天做完的）+ 自动排进今天、还没做完的任务
   const todayItems = calendarItems.filter(item => item.date === todayStr);
-  const totalToday = todayItems.length;
+  const todayAutos = scheduledFor(todayStr, new Set(todayItems.map(i => i.id)));
+  const totalToday = todayItems.length + todayAutos.length;
   const completedToday = todayItems.filter(item => item.completed).length;
-  const progressItems = totalToday > 0 ? [
-    {
-      id: 'today-progress',
-      title: '今日事项',
-      subtasks: todayItems.map(item => ({ id: item.id, title: item.title, completed: item.completed })),
-    }
-  ] : [];
 
   const itemsForSelectedDay = sortItems(calendarItems.filter(item => item.date === currentEditDate));
   // 「这天的事项」= 这天的事项（截止 / 指定在这天）+ 自动排进这天的任务，合成一个列表：
@@ -850,24 +845,17 @@ function CalendarMain() {
 
   return (
     <View style={styles.container}>
-      {/* 进度条 */}
-      {progressItems.length > 0 && (
-        <ScrollView horizontal style={styles.progressScroll} showsHorizontalScrollIndicator={false}>
-          {progressItems.map(task => {
-            const total = task.subtasks.length;
-            const finished = task.subtasks.filter(st => st.completed).length;
-            const percent = total > 0 ? finished / total : 0;
-            return (
-              <View key={task.id} style={styles.progressCard}>
-                <View style={styles.progressBarBg}>
-                  <View style={[styles.progressBarFill, { width: `${Math.round(percent * 100)}%` }]} />
-                </View>
-                <Text style={styles.progressTitle}>{task.title}</Text>
-                <Text style={styles.progressStats}>{finished}/{total}</Text>
-              </View>
-            );
-          })}
-        </ScrollView>
+      {/* 今日事项：一行扁条 */}
+      {totalToday > 0 && (
+        <View style={styles.progressCard}>
+          <Text style={styles.progressTitle}>今日事项</Text>
+          <Text style={styles.progressStats}>
+            {completedToday}/{totalToday}
+          </Text>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${Math.round((completedToday / totalToday) * 100)}%` }]} />
+          </View>
+        </View>
       )}
 
       <View ref={outerRef} style={{ flex: 1, minHeight: 0 }}>
@@ -1357,12 +1345,11 @@ function CalendarMain() {
 const styles = StyleSheet.create({
   // flexGrow + 不收缩：日历比窗口高时，底色跟着一起往下延伸（否则超出的部分没有底色，会出现明暗交界）
   container: { flexGrow: 1, flexShrink: 0, flexBasis: 'auto', backgroundColor: '#F8FAFC', paddingTop: 5 },
-  progressScroll: { marginVertical: 18, paddingLeft: 10, maxHeight: 64 },
-  progressCard: { width: 215, backgroundColor: '#fff', borderRadius: 13, marginRight: 13, shadowColor: '#9EB4D0', shadowOpacity: 0.1, shadowOffset: { width: 0, height: 2 }, shadowRadius: 12, padding: 13, justifyContent: 'center', elevation: 2 },
-  progressBarBg: { height: 9, backgroundColor: '#e4ecf2', borderRadius: 5, overflow: 'hidden', marginBottom: 8 },
-  progressBarFill: { backgroundColor: '#1976D2', height: '100%', borderRadius: 5 },
-  progressTitle: { fontSize: 15, color: '#1976D2', fontWeight: '600', marginBottom: 3 },
-  progressStats: { fontSize: 12, color: '#5776A5', marginTop: 2 },
+  progressCard: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', minWidth: 260, backgroundColor: '#fff', borderRadius: 10, marginTop: 8, marginBottom: 6, marginLeft: 10, paddingVertical: 6, paddingHorizontal: 12 },
+  progressBarBg: { flex: 1, minWidth: 120, height: 6, backgroundColor: '#e4ecf2', borderRadius: 3, overflow: 'hidden', marginLeft: 10 },
+  progressBarFill: { backgroundColor: '#1976D2', height: '100%', borderRadius: 3 },
+  progressTitle: { fontSize: 13, color: '#1976D2', fontWeight: '600' },
+  progressStats: { fontSize: 12, color: '#5776A5', marginLeft: 8, fontWeight: '600' },
   dayCell: {
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
