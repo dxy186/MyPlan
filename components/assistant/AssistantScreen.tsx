@@ -604,7 +604,7 @@ export default function AssistantScreen() {
       const se = fresh.settings;
       const WK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       const rulesNote = se
-        ? `\n\n（系统提醒，必须遵守：每天只能在 ${minutesToHM(se.dayStartMin)}–${minutesToHM(se.dayEndMin)} 之间安排任务，startTime 不能早于 ${minutesToHM(se.dayStartMin)}；一次最多专注 ${se.maxFocusMin} 分钟、块之间休息 ${se.breakMin} 分钟${se.restDayWeekday !== null && se.restDayWeekday !== undefined ? `；${WK[se.restDayWeekday]}是休息日（用户明确要的除外）` : ''}。如果对话历史里你以前给过不符合这些的方案，这次不要照抄，按这些限制重新排，reply 里写的时间也要符合。）`
+        ? `\n\n（系统提醒，必须遵守：每天只能在 ${minutesToHM(se.dayStartMin)}–${minutesToHM(se.dayEndMin)} 之间安排任务，startTime 不能早于 ${minutesToHM(se.dayStartMin)}；一次最多专注 ${se.maxFocusMin} 分钟、块之间休息 ${se.breakMin} 分钟${se.playMinPerDay > 0 ? `；每天最后 ${se.playMinPerDay} 分钟（${minutesToHM(Math.max(0, se.dayEndMin - se.playMinPerDay))} 以后）是玩的时间，不排任务` : ''}${se.restDayWeekday !== null && se.restDayWeekday !== undefined ? `；${WK[se.restDayWeekday]}是休息日（用户明确要的除外）` : ''}。如果对话历史里你以前给过不符合这些的方案，这次不要照抄，按这些限制重新排，reply 里写的时间也要符合。）`
         : '';
       const msgs: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT + personaTone },

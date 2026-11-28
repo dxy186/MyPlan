@@ -1005,6 +1005,14 @@ export function buildContext(
     const rd = state.settings?.restDayWeekday;
     const se = state.settings;
     if (se) lines.push(`作息：每天 ${minutesToHM(se.dayStartMin)} 到 ${minutesToHM(se.dayEndMin)} 之间安排任务；一次最多专注 ${se.maxFocusMin} 分钟，块之间休息 ${se.breakMin} 分钟（超过的系统会自动切块）。startTime 不要早于 ${minutesToHM(se.dayStartMin)}，任务要在 ${minutesToHM(se.dayEndMin)} 前结束；用户明确要更早 / 更晚的除外。`);
+    if (se) {
+      const extra: string[] = [];
+      if (se.playMinPerDay > 0)
+        extra.push(`每天最后 ${se.playMinPerDay} 分钟是玩的时间（${minutesToHM(Math.max(0, se.dayEndMin - se.playMinPerDay))}–${minutesToHM(se.dayEndMin)}），不能安排任务，任务要在这之前结束`);
+      if (se.minFocusMin > 0) extra.push(`一次至少 ${se.minFocusMin} 分钟，比这短的空档不放任务`);
+      if (se.days > 0) extra.push(`自动排程只往后排 ${se.days} 天`);
+      if (extra.length) lines.push(`作息（续）：${extra.join('；')}。`);
+    }
     if (rd !== null && rd !== undefined) lines.push(`缓冲日：每${WEEKDAY_CN[rd]}（自动排程这天不排任务；用户明确要在这天做的照常写这天的 date，最好带 startTime）`);
   }
   if (habits) lines.push(habits);
