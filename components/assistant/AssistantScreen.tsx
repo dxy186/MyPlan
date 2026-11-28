@@ -46,7 +46,6 @@ import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
 import { parseDdlLine } from '@/components/data/quick-parse';
 import ChatThread, { ChatMsg } from './ChatThread';
-import { appendDiaryText } from '@/components/data/diary';
 import { chatPersonaPrompt, loadPersona } from './coach';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
