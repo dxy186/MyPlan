@@ -71,12 +71,14 @@ export default function ChatThread({
   onQuote,
   onDiary,
   onClear,
+  onDelete,
 }: {
   history: ChatMsg[];
   loading: boolean;
   onQuote: (m: ChatMsg) => void;
   onDiary: (m: ChatMsg) => Promise<string>;
   onClear: () => void;
+  onDelete: (m: ChatMsg) => void;
 }) {
   const [moreDays, setMoreDays] = useState(0);
   const [q, setQ] = useState('');
@@ -142,7 +144,7 @@ export default function ChatThread({
         {query ? (
           <Text style={styles.muted}>找到 {list.length} 条{list.length >= 100 ? '（只显示最近 100 条）' : ''}</Text>
         ) : (
-          <Text style={styles.muted}>右键一条消息，或点它右下角的 ⋯：引用 / 记进日记 / 复制</Text>
+          <Text style={styles.muted}>右键一条消息，或点它右下角的 ⋯：引用 / 记进日记 / 复制 / 删除</Text>
         )}
         <View style={{ flex: 1 }} />
         <TouchableOpacity
@@ -263,6 +265,19 @@ export default function ChatThread({
               }}
             >
               <Text style={styles.menuText}>📋 复制</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={async () => {
+                const m = menu.m;
+                setMenu(null);
+                if (await confirmAsync('删除这条消息？删了以后 AI 也看不到它了（不会再被它带偏）。删了找不回来。')) {
+                  onDelete(m);
+                  setToast('🗑 已删除');
+                }
+              }}
+            >
+              <Text style={[styles.menuText, { color: '#E53935' }]}>🗑 删除这条</Text>
             </TouchableOpacity>
           </View>
         </>,
