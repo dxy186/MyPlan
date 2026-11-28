@@ -87,7 +87,7 @@ function isLastInStatus(list: CalendarItem[], index: number): boolean {
 }
 
 // ---------- 主组件 ----------
-function CalendarMain() {
+function CalendarMain({ onProgress }: { onProgress?: (p: { done: number; total: number }) => void }) {
   const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   // ⭐ 重要事件（生日、考试日、出发…）
   const [events, setEvents] = useState<ImportantEvent[]>([]);
@@ -829,6 +829,10 @@ function CalendarMain() {
   const todayAutos = scheduledFor(todayStr, new Set(todayItems.map(i => i.id)));
   const totalToday = todayItems.length + todayAutos.length;
   const completedToday = todayItems.filter(item => item.completed).length;
+  // 今日事项显示在顶部「正在 / 下一项」那条的右边
+  useEffect(() => {
+    onProgress?.({ done: completedToday, total: totalToday });
+  }, [completedToday, totalToday]);
 
   const itemsForSelectedDay = sortItems(calendarItems.filter(item => item.date === currentEditDate));
   // 「这天的事项」= 这天的事项（截止 / 指定在这天）+ 自动排进这天的任务，合成一个列表：
@@ -845,19 +849,6 @@ function CalendarMain() {
 
   return (
     <View style={styles.container}>
-      {/* 今日事项：一行扁条 */}
-      {totalToday > 0 && (
-        <View style={styles.progressCard}>
-          <Text style={styles.progressTitle}>今日事项</Text>
-          <Text style={styles.progressStats}>
-            {completedToday}/{totalToday}
-          </Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${Math.round((completedToday / totalToday) * 100)}%` }]} />
-          </View>
-        </View>
-      )}
-
       <View ref={outerRef} style={{ flex: 1, minHeight: 0 }}>
       <View ref={innerRef}>
       <Calendar
@@ -1345,8 +1336,8 @@ function CalendarMain() {
 const styles = StyleSheet.create({
   // flexGrow + 不收缩：日历比窗口高时，底色跟着一起往下延伸（否则超出的部分没有底色，会出现明暗交界）
   container: { flexGrow: 1, flexShrink: 0, flexBasis: 'auto', backgroundColor: '#F8FAFC', paddingTop: 5 },
-  progressCard: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', minWidth: 260, backgroundColor: '#fff', borderRadius: 10, marginTop: 8, marginBottom: 6, marginLeft: 10, paddingVertical: 6, paddingHorizontal: 12 },
-  progressBarBg: { flex: 1, minWidth: 120, height: 6, backgroundColor: '#e4ecf2', borderRadius: 3, overflow: 'hidden', marginLeft: 10 },
+  progressCard: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', paddingLeft: 12 },
+  progressBarBg: { width: 110, height: 6, backgroundColor: 'rgba(25, 118, 210, 0.15)', borderRadius: 3, overflow: 'hidden', marginLeft: 8 },
   progressBarFill: { backgroundColor: '#1976D2', height: '100%', borderRadius: 3 },
   progressTitle: { fontSize: 13, color: '#1976D2', fontWeight: '600' },
   progressStats: { fontSize: 12, color: '#5776A5', marginLeft: 8, fontWeight: '600' },
@@ -1532,12 +1523,28 @@ const styles = StyleSheet.create({
 });
 
 // ---------- 页面入口：日历（已包含排程和固定日程）；精力打卡在「复盘 → 精力」----------
+function TodayProgress({ done, total }: { done: number; total: number }) {
+  if (total <= 0) return null;
+  return (
+    <View style={styles.progressCard}>
+      <Text style={styles.progressTitle}>今日事项</Text>
+      <Text style={styles.progressStats}>
+        {done}/{total}
+      </Text>
+      <View style={styles.progressBarBg}>
+        <View style={[styles.progressBarFill, { width: `${Math.round((done / total) * 100)}%` }]} />
+      </View>
+    </View>
+  );
+}
+
 export default function CalendarPage() {
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   return (
     <View style={{ flex: 1 }}>
       <HabitStrip />
-      <CalendarTopBar />
-      <CalendarMain />
+      <CalendarTopBar right={<TodayProgress done={progress.done} total={progress.total} />} />
+      <CalendarMain onProgress={setProgress} />
     </View>
   );
 }
