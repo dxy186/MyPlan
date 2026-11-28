@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { getHolidayData } from '@/app/utils/holidays';
-import { festivalsOn, lunarLine } from '@/app/utils/festivals';
+import { festivalsOn, lunarOf } from '@/app/utils/festivals';
 import { applyActions, commitState, loadPlanState, saveState, setTaskDone } from '@/components/assistant/plan-store';
 import {
   CalendarItem,
@@ -648,9 +648,12 @@ function CalendarMain() {
     const lunarColor = isCurrentMonth ? '#888' : '#ccc';
 
     // 农历那一行：有节日 / 节气就显示它（节日红字、节气绿字），初一显示月份，其余显示农历日
-    const ll = lunarLine(dateStr);
-    const lunarStr = ll.text;
-    const lunarSpecialColor = ll.special === 'term' ? '#2E7D32' : ll.special ? '#E53935' : null;
+    // 节日 / 节气放在日期那一排（休/班 前面），用柔和的颜色；第二行始终是农历
+    const fests = festivalsOn(dateStr);
+    const festStr = fests.map(f => f.name).slice(0, 2).join('·');
+    const festColor = fests[0]?.kind === 'term' ? '#6F9A7C' : '#A0789E';
+    const lo = lunarOf(dateStr);
+    const lunarStr = lo ? (lo.day === 1 ? lo.monthName : lo.dayName) : '';
 
     const holidayType = holidayMap[dateStr];
     const showHoliday = holidayType === 'holiday';
@@ -677,16 +680,38 @@ function CalendarMain() {
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={handlePress}
-        style={[styles.dayCell, { backgroundColor: bgColor, minHeight: cellH, maxHeight: cellH }]}
+        style={[
+          styles.dayCell,
+          { backgroundColor: bgColor, minHeight: cellH, maxHeight: cellH },
+          isToday && (bgColor === 'transparent' ? styles.todayCell : { borderColor: styles.todayCell.borderColor }),
+        ]}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
-          <View style={[isToday && { backgroundColor: '#E5E5E5', borderRadius: 14, minWidth: 26, minHeight: 26, justifyContent: 'center', alignItems: 'center' }]}>
-            <Text style={{ 
-              color: isToday ? '#111' : dayNumberColor, 
-              fontWeight: isToday ? 'bold' : 'normal', 
-              fontSize: 14
-            }}>{date.day}</Text>
-          </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' }}>
+          <Text
+            style={{
+              color: isToday ? '#7E57C2' : dayNumberColor,
+              fontWeight: isToday ? '800' : 'normal',
+              fontSize: 14,
+            }}
+          >
+            {date.day}
+          </Text>
+          {isToday && <Text style={styles.todayTag}>今天</Text>}
+          {!!festStr && (
+            <Text
+              numberOfLines={1}
+              style={{
+                marginLeft: 4,
+                fontSize: 11,
+                fontWeight: '600',
+                color: festColor,
+                opacity: isCurrentMonth ? 1 : 0.5,
+                flexShrink: 1,
+              }}
+            >
+              {festStr}
+            </Text>
+          )}
           {showHoliday && <Text style={styles.holidayBadge}>休</Text>}
           {showWorkday && <Text style={styles.workdayBadge}>班</Text>}
         </View>
@@ -694,8 +719,7 @@ function CalendarMain() {
           numberOfLines={1}
           style={[
             styles.lunarText,
-            { color: lunarSpecialColor ?? lunarColor },
-            lunarSpecialColor ? { fontWeight: '600', opacity: isCurrentMonth ? 1 : 0.5 } : null,
+            { color: lunarColor },
           ]}
         >
           {lunarStr}
@@ -1346,9 +1370,27 @@ const styles = StyleSheet.create({
     maxHeight: 110,
     paddingTop: 4,
     paddingBottom: 2,
-    borderRadius: 6,
+    paddingHorizontal: 3,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     overflow: 'hidden',
     width: '100%',
+  },
+  // 今天：淡紫色底 + 细边框，和皮肤协调，不用圈住日期
+  todayCell: {
+    backgroundColor: 'rgba(179, 157, 219, 0.22)',
+    borderColor: 'rgba(149, 117, 205, 0.55)',
+  },
+  todayTag: {
+    marginLeft: 4,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
+    backgroundColor: 'rgba(126, 87, 194, 0.75)',
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    overflow: 'hidden',
   },
   holidayBadge: {
     fontSize: 10,
