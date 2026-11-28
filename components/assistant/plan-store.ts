@@ -283,7 +283,15 @@ function clone<T>(v: T): T {
 }
 
 /** "14:30" / "14：30" → 870；无效返回 undefined */
-export type SplitStep = { title: string; estimateMin: number; energyCost: EnergyCost; date: string; note?: string };
+export type SplitStep = {
+  title: string;
+  estimateMin: number;
+  energyCost: EnergyCost;
+  date: string;
+  note?: string;
+  /** 这一步几点开始（分钟）：细化已经排好的时间段时用，填了就钉在那天那个时间 */
+  startMin?: number;
+};
 
 /**
  * 把一个任务拆成子任务（就地修改 goals）：原任务留着当「父任务」（split=true，不单独排程，
@@ -318,11 +326,16 @@ export function splitTaskInGoals(goals: Goal[], taskId: string, steps: SplitStep
       createdAt: now,
       parentId: original.id,
     };
+    // 指定了几点做的步骤：钉在那天那个时间（细化之前排好的时间段）
+    if (st.startMin !== undefined) {
+      t.notBefore = st.date;
+      t.startMin = st.startMin;
+    }
     prevId = id;
     return t;
   });
   newTasks[0].deps = [...original.deps];
-  if (original.startMin !== undefined && startDay === ownStart) newTasks[0].startMin = original.startMin;
+  if (original.startMin !== undefined && startDay === ownStart && newTasks[0].startMin === undefined) newTasks[0].startMin = original.startMin;
   const lastId = newTasks[newTasks.length - 1].id;
   for (const r of allTasks(goals)) {
     if (r.task.id !== original.id) r.task.deps = r.task.deps.map(d => (d === original.id ? lastId : d));
@@ -355,6 +368,7 @@ export function cleanSteps(raw: unknown): SplitStep[] {
         energyCost: (['high', 'medium', 'low'] as EnergyCost[]).includes(x.energyCost) ? x.energyCost : 'medium',
         date: d && d >= today ? d : today,
         note: x.note ? String(x.note) : undefined,
+        startMin: x.startTime ? parseHM(String(x.startTime)) : undefined,
       };
     });
   for (let k = 1; k < out.length; k++) if (out[k].date < out[k - 1].date) out[k].date = out[k - 1].date;
@@ -998,7 +1012,7 @@ reply 的写法：
 可用操作：
 - {"type":"add_task","title":"任务名（动词开头，具体）","estimateMin":分钟,"energyCost":"high|medium|low","due":"YYYY-MM-DD","notBefore":"YYYY-MM-DD","startTime":"HH:MM（用户说了几点开始才填）","window":"morning|afternoon|evening","tag":"分类，如 学习/工作/生活/健康，沿用用户任务里已有的分类，可省略","quadrant":"important_urgent|not_important_urgent|important_not_urgent|not_important_not_urgent（用户说了重要/紧急才填）","goal":"已有的目标名；拆解新目标时填新目标名；零散小事省略（会放进「日常安排」）","note":"背景，可省略"}
 - {"type":"update_task","taskId":"已有任务 id","title":...,"estimateMin":...,"energyCost":...,"due":"YYYY-MM-DD 或 null","notBefore":"YYYY-MM-DD 或 null","startTime":"HH:MM 或 null","window":"... 或 null","tag":"分类 或 null","quadrant":"四象限 或 null"}  （只写要改的字段）
-- {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","notBefore":"YYYY-MM-DD 从哪天开始做（用户说了才填）","startTime":"HH:MM（可省略）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
+- {"type":"split_task","taskId":"已有任务 id（拆新的大任务时省略，改填 title/due/tag/quadrant/goal）","notBefore":"YYYY-MM-DD 从哪天开始做（用户说了才填）","startTime":"HH:MM（可省略）","steps":[{"title":"具体步骤（动词开头）","estimateMin":分钟,"energyCost":"high|medium|low","date":"YYYY-MM-DD 这一步哪天做","startTime":"HH:MM 这一步几点开始（细化已经排好的时间段时填，可省略）","note":"可省略"}]}  （拆成父任务 + 子任务，和 🧩 拆解的格式一样）
 - {"type":"add_event","title":"妈妈生日","date":"YYYY-MM-DD","yearly":true,"time":"HH:MM（可省略）"}  （重要事件：只在日历上标出来）
 - {"type":"add_diary","text":"要写进日记的内容","date":"YYYY-MM-DD（默认今天，用户说了哪天才填）"}
 - {"type":"complete_task","taskId":"已有任务 id"}
@@ -1039,4 +1053,8 @@ reply 的写法：
    - 只有用户明确说「记成重要事件 / 加个 ⭐ / 只是提醒我这天」时，才把这类记成 add_event。
 16. 用户明确说「把 X 排在某天几点」（哪怕那时有课 / 固定日程）→ 以任务为主：add_task / update_task 填 notBefore + startTime，系统会照这个时间排，并提示冲突；不要擅自改时间，可以在 reply 里提醒一句和哪个固定日程冲突。没说具体时间的，系统自动排时会避开固定日程。
 17. 「当前数据」永远是准的，对话历史只是过去说过的话。历史里提到的任务 / DDL / 重要事件 / 固定日程，如果在当前数据里找不到，说明用户已经在日历或任务页删掉或改掉了：不要说它「已经在日历上」「还在」，也不要拿它来问用户（比如问「7 号和 8 号是不是重复」）；用户这次又提到它，就当作新的，照常添加。判断某天有没有某件事，只看当前数据。
-18. 用户消息里以 # 开头的一句是 DDL：一律用 add_task 只写 due（截止日），绝不记成重要事件或固定日程；以 * 开头的是重要事件（add_event）。`;
+18. 用户消息里以 # 开头的一句是 DDL：一律用 add_task 只写 due（截止日），绝不记成重要事件或固定日程；以 * 开头的是重要事件（add_event）。
+19. 细化之前的安排：用户说「把写作业细化成具体的」「作业具体是数学卷子、英语作文…，按刚才的时间排进去」这类话 →
+   - 先在「当前数据」里找对应的笼统任务（比如你上次方案里加的「写作业」「练琴」，看 notBefore / startTime 就知道它原来排在哪天几点）；找到了就用 split_task（填这个 taskId）把它拆成具体的子任务，每一步写 date + startTime，按原来的时间段依次往后排（比如原来 9:30–11:30 写作业：数学 9:30 开始 50 分钟、英语 10:20 开始 40 分钟…），不要挪到别的时间；原来的时间段放不下就顺延到你方案里的下一个学习时段，并在 reply 里说明；
+   - 当前数据里找不到（上次的方案没点「应用」），就照你上次在对话里给的时间段，用 add_task 给每个具体作业填 notBefore + startTime + estimateMin，排进那些时间段；
+   - reply 里按时间顺序列出细化后的安排（几点到几点做什么），让用户一眼能核对。`;
