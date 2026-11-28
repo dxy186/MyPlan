@@ -578,6 +578,12 @@ export default function AssistantScreen() {
         ? `\n\n（注意：上一个方案用户还没点「应用」，系统会把它自动并进这次的方案，里面已有这些操作：${JSON.stringify(carried)}。你只需要输出这次新要求的操作；如果新要求是要改掉或取消上面的某一项，就在 reply 里说明，系统会以你这次的操作为准再追加。）`
         : '';
       const personaTone = chatPersonaPrompt(await loadPersona());
+      // 作息限制每次都贴在这句话后面（放在最后，AI 最不容易忽略；也防止它照抄以前的方案）
+      const se = fresh.settings;
+      const WK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+      const rulesNote = se
+        ? `\n\n（系统提醒，必须遵守：每天只能在 ${minutesToHM(se.dayStartMin)}–${minutesToHM(se.dayEndMin)} 之间安排任务，startTime 不能早于 ${minutesToHM(se.dayStartMin)}；一次最多专注 ${se.maxFocusMin} 分钟、块之间休息 ${se.breakMin} 分钟${se.restDayWeekday !== null && se.restDayWeekday !== undefined ? `；${WK[se.restDayWeekday]}是休息日（用户明确要的除外）` : ''}。如果对话历史里你以前给过不符合这些的方案，这次不要照抄，按这些限制重新排，reply 里写的时间也要符合。）`
+        : '';
       const msgs: ChatMessage[] = [
         { role: 'system', content: SYSTEM_PROMPT + personaTone },
         { role: 'system', content: `当前数据：\n${context}` },
@@ -586,11 +592,11 @@ export default function AssistantScreen() {
           ? {
               role: 'user',
               content: [
-                { type: 'text', text: `${text}${quoteNote}\n\n${IMAGE_PROMPT}${pendingNote}` },
+                { type: 'text', text: `${text}${quoteNote}\n\n${IMAGE_PROMPT}${pendingNote}${rulesNote}` },
                 ...pics.map(p => ({ type: 'image_url' as const, image_url: { url: p.dataUrl } })),
               ],
             }
-          : { role: 'user', content: text + quoteNote + pendingNote },
+          : { role: 'user', content: text + quoteNote + pendingNote + rulesNote },
       ];
       const aiOpts = pics.length ? visionOpts(cfg.visionModel) : undefined;
       let result = normalizeAiResult(await callChatJSON<unknown>(msgs, aiOpts));
@@ -623,10 +629,72 @@ export default function AssistantScreen() {
           ? ({ type: 'add_task', title: String((a as any).title), due: String((a as any).date), estimateMin: 30, energyCost: 'medium' } as AssistantAction)
           : a
       );
+      // 兜底：AI 定的开始时间早于作息，直接改成作息开始的时间，并在回复里说明
+      const fixedTimes: string[] = [];
+      if (se) {
+        const early = (t: unknown) => {
+          const m = typeof t === 'string' ? t.match(/^(\d{1,2})[:：](\d{2})$/) : null;
+          return m ? Number(m[1]) * 60 + Number(m[2]) < se.dayStartMin : false;
+        };
+        const startHM = minutesToHM(se.dayStartMin);
+        for (const a of fresh2 as any[]) {
+          if ((a.type === 'add_task' || a.type === 'update_task' || a.type === 'split_task') && early(a.startTime)) {
+            fixedTimes.push(`${a.startTime}`);
+            a.startTime = startHM;
+          }
+          if (a.type === 'split_task' && Array.isArray(a.steps))
+            for (const st of a.steps)
+              if (early(st.startTime)) {
+                fixedTimes.push(`${st.startTime}`);
+                st.startTime = startHM;
+              }
+        }
+      }
+      // 兜底：AI 自己挑的时间压在固定日程（上课、开会）上，挪到那节课结束之后。
+      // 用户这句话里亲口说了这个时间的，照他说的来（他要的就是那个时间）
+      {
+        const said = (hm: string) => {
+          const [h, m] = hm.split(':').map(Number);
+          return text.includes(hm) || text.includes(`${h}点${m ? (m === 30 ? '半' : `${m}`) : ''}`) || text.includes(`${h}:${String(m).padStart(2, '0')}`);
+        };
+        const toMin = (t: string) => {
+          const m = t.match(/^(\d{1,2})[:：](\d{2})$/);
+          return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+        };
+        const shift = (date: string | undefined, hm: string | undefined, len: number): string | undefined => {
+          if (!date || !hm || said(hm)) return undefined;
+          let st = toMin(hm);
+          if (st === null) return undefined;
+          const wd = new Date(`${date}T12:00:00`).getDay();
+          const evs = fresh.fixed.filter(e => (e.date ? e.date === date : e.weekday === wd));
+          const orig = st;
+          for (let g = 0; g < 10; g++) {
+            const hit = evs.find(e => e.startMin < (st as number) + Math.min(len, 90) && e.endMin > (st as number));
+            if (!hit) break;
+            st = hit.endMin + (se?.breakMin ?? 10);
+          }
+          if (st === orig) return undefined;
+          fixedTimes.push(`${hm}（和固定日程冲突）`);
+          return minutesToHM(st);
+        };
+        for (const a of fresh2 as any[]) {
+          if (a.type === 'add_task' || a.type === 'update_task') {
+            const n = shift(a.notBefore, a.startTime, Number(a.estimateMin) || 60);
+            if (n) a.startTime = n;
+          }
+          if (a.type === 'split_task' && Array.isArray(a.steps))
+            for (const st of a.steps) {
+              const n = shift(st.date, st.startTime, Number(st.estimateMin) || 60);
+              if (n) st.startTime = n;
+            }
+        }
+      }
       // 去掉和上次方案重复的操作（AI 有时会把上一个方案再写一遍）
       const seen = new Set(carried.map(a => JSON.stringify(a)));
       const actions = [...carried, ...fresh2.filter(a => !seen.has(JSON.stringify(a)))];
       let reply = result.reply.trim() || (actions.length ? '我拟了一个调整方案，请确认。' : '');
+      if (reply && fixedTimes.length)
+        reply += `\n\n（App 提示：AI 定的 ${[...new Set(fixedTimes)].join('、')} 不符合你的作息或和固定日程撞了，已经自动挪开；具体几点以日历上显示的为准。）`;
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
