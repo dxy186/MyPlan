@@ -237,7 +237,7 @@ export default function ChatThread({
                 setMenu(null);
               }}
             >
-              <Text style={styles.menuText}>💬 引用这条，让 AI 照着做</Text>
+              <Text style={styles.menuText}>引用</Text>
             </TouchableOpacity>
             {menu.m.role === 'assistant' && (
               <TouchableOpacity
@@ -248,7 +248,7 @@ export default function ChatThread({
                   setToast(await onDiary(m));
                 }}
               >
-                <Text style={styles.menuText}>📔 记进日记</Text>
+                <Text style={styles.menuText}>记进日记</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
@@ -264,7 +264,7 @@ export default function ChatThread({
                 }
               }}
             >
-              <Text style={styles.menuText}>📋 复制</Text>
+              <Text style={styles.menuText}>复制</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuItem}
@@ -277,7 +277,7 @@ export default function ChatThread({
                 }
               }}
             >
-              <Text style={[styles.menuText, { color: '#E53935' }]}>🗑 删除这条</Text>
+              <Text style={[styles.menuText, { color: '#E53935' }]}>删除</Text>
             </TouchableOpacity>
           </View>
         </>,
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 10,
     paddingVertical: 4,
-    minWidth: 170,
+    minWidth: 120,
     shadowColor: '#000',
     shadowOpacity: 0.18,
     shadowRadius: 12,
