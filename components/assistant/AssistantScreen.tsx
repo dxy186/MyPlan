@@ -355,7 +355,10 @@ export default function AssistantScreen() {
   const addFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
     try {
-      const list = await Promise.all(files.slice(0, MAX_IMAGES).map(f => fileToImage(f)));
+      const all = await Promise.all(files.slice(0, MAX_IMAGES).map(f => fileToImage(f)));
+      // 读出来太小的（几个像素，基本是空白）不要，免得 AI 说「图是空白的」
+      const list = all.filter(im => im.w === undefined || (im.w >= 16 && (im.h ?? 16) >= 16));
+      if (list.length < all.length) setError('有图片读出来几乎是空白的，已经去掉了；换成截图（PNG / JPG）或者另存为图片再上传试试。');
       setImages(prev => [...prev, ...list].slice(0, MAX_IMAGES));
       setError('');
     } catch (e: any) {
@@ -916,6 +919,7 @@ export default function AssistantScreen() {
             {images.map(im => (
               <View key={im.id} style={styles.thumbBox}>
                 <Image source={{ uri: im.dataUrl }} style={styles.thumb} resizeMode="cover" />
+                {im.w ? <Text style={styles.thumbSize}>{im.w}×{im.h}</Text> : null}
                 <TouchableOpacity style={styles.thumbDel} onPress={() => setImages(prev => prev.filter(x => x.id !== im.id))}>
                   <Text style={styles.thumbDelText}>✕</Text>
                 </TouchableOpacity>
@@ -1151,6 +1155,7 @@ const styles = StyleSheet.create({
   attachBtn: { backgroundColor: '#EEF1F5', borderRadius: 6, paddingVertical: 5, paddingHorizontal: 10, marginRight: 10 },
   attachText: { fontSize: 13, color: '#37474F', fontWeight: '600' },
   thumbRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  thumbSize: { position: 'absolute', left: 0, right: 0, bottom: 0, fontSize: 9, color: '#fff', backgroundColor: 'rgba(0,0,0,0.45)', textAlign: 'center' },
   thumbBox: { width: 76, height: 76, borderRadius: 8, overflow: 'hidden', marginRight: 8, marginBottom: 6, borderWidth: 1, borderColor: '#D6E0EE' },
   thumb: { width: '100%', height: '100%' },
   thumbDel: { position: 'absolute', top: 2, right: 2, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },

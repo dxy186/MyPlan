@@ -2,12 +2,16 @@
  * 给 AI 发图片：粘贴（Ctrl+V）、本地上传、拖进来都行。
  * 图片先在浏览器里压缩（长边 ≤ 2000px，转成 JPEG），再以 data URL 发给支持看图的模型。
  */
-export type AttachedImage = { id: string; dataUrl: string; name: string };
+export type AttachedImage = { id: string; dataUrl: string; name: string; w?: number; h?: number };
 
 const MAX_SIDE = 2000;
 export const MAX_IMAGES = 6;
 
 const newId = () => Math.random().toString(36).slice(2);
+const fitSize = (iw: number, ih: number, maxSide: number) => {
+  const k = Math.min(1, maxSide / Math.max(iw, ih));
+  return { w: Math.round(iw * k), h: Math.round(ih * k) };
+};
 
 /** 把一张位图画到画布上，压成 JPEG（长边不超过 maxSide） */
 function drawToJpeg(src: CanvasImageSource, iw: number, ih: number, maxSide: number, quality: number): string | null {
@@ -48,18 +52,24 @@ export async function fileToImage(file: File, maxSide = MAX_SIDE, quality = 0.88
     try {
       const bmp = await createImageBitmap(file);
       const out = drawToJpeg(bmp, bmp.width, bmp.height, maxSide, quality);
+      const sz = fitSize(bmp.width, bmp.height, maxSide);
       bmp.close?.();
-      if (out) return { id: newId(), dataUrl: out, name };
+      if (out) return { id: newId(), dataUrl: out, name, ...sz };
     } catch {}
   }
   const src = await readAsDataUrl(file);
+  let dims: { w?: number; h?: number } = {};
   const viaImg = await new Promise<string | null>(resolve => {
     const img = new Image();
     img.onerror = () => resolve(null);
-    img.onload = () => resolve(drawToJpeg(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxSide, quality));
+    img.onload = () => {
+      const out = drawToJpeg(img, img.naturalWidth || img.width, img.naturalHeight || img.height, maxSide, quality);
+      dims = fitSize(img.naturalWidth || img.width, img.naturalHeight || img.height, maxSide);
+      resolve(out);
+    };
     img.src = src;
   });
-  if (viaImg) return { id: newId(), dataUrl: viaImg, name };
+  if (viaImg) return { id: newId(), dataUrl: viaImg, name, ...dims };
   if (/^data:image\/(png|jpe?g|webp|gif)/i.test(src)) return { id: newId(), dataUrl: src, name };
   throw new Error('这张图片读不出来，换成截图（PNG / JPG）再试试');
 }
