@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('myplanDesktop', {
     }
   })(),
   win: a => ipcRenderer.send('myplan:win', a),
+  flash: () => ipcRenderer.send('myplan:flash'),
+  flashStop: () => ipcRenderer.send('myplan:flash-stop'),
   clipboardImage: () => ipcRenderer.sendSync('myplan:clipboard-image'),
   getWindowPrefs: () => ipcRenderer.invoke('myplan:desktop-get'),
   setWindowPrefs: patch => ipcRenderer.invoke('myplan:desktop-set', patch),

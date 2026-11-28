@@ -336,6 +336,40 @@ function applyWindowIcons() {
   }
 }
 
+// ---------- 提醒时让图标闪：任务栏图标闪橙色，托盘图标一闪一闪，点开 MyPlan 就停 ----------
+let trayBlink = null;
+function flashOn() {
+  return loadDesktopSettings().flashOnRemind !== false;
+}
+function stopFlash() {
+  if (trayBlink) {
+    clearInterval(trayBlink);
+    trayBlink = null;
+    if (tray) tray.setImage(trayIcon());
+  }
+  if (mainWindow) mainWindow.flashFrame(false);
+}
+function startFlash() {
+  if (!flashOn() || !mainWindow) return;
+  if (mainWindow.isFocused() && mainWindow.isVisible()) return;
+  // 收在托盘里时任务栏上没有图标：先把窗口以「最小化」放回任务栏（不抢焦点），图标才能闪
+  if (!mainWindow.isVisible()) {
+    mainWindow.showInactive();
+    mainWindow.minimize();
+  }
+  mainWindow.flashFrame(true);
+  if (tray && !trayBlink) {
+    let on = false;
+    let n = 0;
+    const empty = nativeImage.createEmpty();
+    trayBlink = setInterval(() => {
+      on = !on;
+      if (tray) tray.setImage(on ? empty : trayIcon());
+      if (++n > 120) stopFlash(); // 最多闪 1 分钟
+    }, 500);
+  }
+}
+
 function trayIcon() {
   if (hasCustomIcon()) {
     const img = nativeImage.createFromPath(customIconPng());
@@ -463,6 +497,7 @@ async function createWindow(bounds) {
   });
 
   const thisWin = mainWindow;
+  thisWin.on('focus', () => stopFlash());
   thisWin.on('closed', () => {
     // 换玻璃 / 普通窗口时旧窗口会被关掉，不能把新窗口清掉
     if (mainWindow === thisWin) mainWindow = null;
@@ -505,10 +540,14 @@ if (!app.requestSingleInstanceLock()) {
     hotkey: currentHotkey(),
     hotkeyOk: !currentHotkey() || globalShortcut.isRegistered(currentHotkey()),
     defaultHotkey: DEFAULT_HOTKEY,
+    flashOnRemind: flashOn(),
   }));
+  ipcMain.on('myplan:flash', () => startFlash());
+  ipcMain.on('myplan:flash-stop', () => stopFlash());
   ipcMain.handle('myplan:desktop-set', async (_e, patch) => {
     const s = loadDesktopSettings();
     if (patch && (patch.closeAction === 'quit' || patch.closeAction === 'tray')) s.closeAction = patch.closeAction;
+    if (patch && typeof patch.flashOnRemind === 'boolean') s.flashOnRemind = patch.flashOnRemind;
     let hotkeyOk = true;
     if (patch && typeof patch.hotkey === 'string') {
       hotkeyOk = registerHotkey(patch.hotkey);
@@ -517,7 +556,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     saveDesktopSettings(s);
     tray && tray.setContextMenu(buildTrayMenu());
-    return { closeAction: closeAction(), hotkey: currentHotkey(), hotkeyOk };
+    return { closeAction: closeAction(), hotkey: currentHotkey(), hotkeyOk, flashOnRemind: s.flashOnRemind !== false };
   });
   ipcMain.on('myplan:quit', () => quitApp());
   // AI 请求由后台转发：没有浏览器的跨域限制（本机 Ollama、Claude 等网页直连不了的也能用）

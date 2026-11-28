@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-type Prefs = { closeAction: 'tray' | 'quit'; hotkey: string; hotkeyOk: boolean; defaultHotkey?: string };
+type Prefs = { closeAction: 'tray' | 'quit'; hotkey: string; hotkeyOk: boolean; defaultHotkey?: string; flashOnRemind?: boolean };
 type Desk = {
   version?: string;
   getWindowPrefs?: () => Promise<Prefs>;
@@ -92,6 +92,25 @@ export default function WindowPrefsCard() {
       </View>
       <Text style={styles.hint}>
         收到托盘时，MyPlan 还在后台运行（右下角托盘里有图标），提醒照常弹出。想彻底关掉：右键托盘图标 →「彻底退出」，或者点下面的按钮。
+      </Text>
+
+      <Text style={[styles.label, { marginTop: 14 }]}>到点提醒时让图标闪烁</Text>
+      <View style={styles.chips}>
+        {[true, false].map(v => (
+          <TouchableOpacity
+            key={String(v)}
+            style={[styles.chip, (p?.flashOnRemind !== false) === v && styles.chipOn]}
+            onPress={async () => {
+              const r = await d.setWindowPrefs?.({ flashOnRemind: v });
+              if (r) setP(prev => ({ ...(prev as Prefs), ...r }));
+            }}
+          >
+            <Text style={[styles.chipText, (p?.flashOnRemind !== false) === v && styles.chipTextOn]}>{v ? '闪' : '不闪'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        任务栏上的 MyPlan 图标会闪橙色，右下角托盘图标也会一闪一闪，点开 MyPlan 或开始计时就停。窗口收在托盘里时，会先以最小化的样子放回任务栏再闪（不会弹到前面打断你）。
       </Text>
 
       <Text style={[styles.label, { marginTop: 14 }]}>呼出 / 收起窗口的快捷键</Text>
