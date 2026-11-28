@@ -965,7 +965,13 @@ function CalendarMain() {
                             {entry.a.title}
                           </Text>
                           <Text style={styles.noteItemDate}>
-                            🗓 自动排在 {minutesToHM(entry.a.start)}–{minutesToHM(entry.a.end)} · {entry.a.minutes} 分钟
+                            🗓 自动排在{' '}
+                            {scheduled
+                              .filter(i => i.taskId === entry.a.taskId && i.date === currentEditDate)
+                              .sort((x, y) => x.startMin - y.startMin)
+                              .map(i => `${minutesToHM(i.startMin)}–${minutesToHM(i.endMin)}`)
+                              .join('、')}{' '}
+                            · 共 {entry.a.minutes} 分钟
                             {(() => {
                               const due = scheduledDue.get(entry.a.taskId);
                               return due ? ` · ${due.slice(5)} 截止` : ' · 没有截止日';

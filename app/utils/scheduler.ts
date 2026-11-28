@@ -365,6 +365,12 @@ export function generateSchedule(
     // 定了几点的任务也遵守「一次最多专注」：超过就从那个时间起切成几块，中间按「块之间休息」隔开
     const wd = weekdayOf(d);
     let at = task.startMin;
+    // 早于作息的「一天从」：挪到那个时间开始（要更早就去设置里改作息）
+    let earlyNote = '';
+    if (at < opts.dayStartMin) {
+      earlyNote = `原定 ${String(Math.floor(at / 60)).padStart(2, '0')}:${String(at % 60).padStart(2, '0')}，早于你的作息（一天从 ${String(Math.floor(opts.dayStartMin / 60)).padStart(2, '0')}:${String(opts.dayStartMin % 60).padStart(2, '0')} 开始），挪到这里`;
+      at = opts.dayStartMin;
+    }
     // 和这天已经钉好的任务撞了（两个都定了同一个时间）：顺延到它后面，不叠在一起
     const pinnedThatDay = () => items.filter(i => i.type === 'task' && i.date === d && pinnedIds.has(i.taskId as string));
     let movedFrom: string | null = null;
@@ -398,7 +404,9 @@ export function generateSchedule(
         quadrant: task.quadrant,
         note: clash.length
           ? `你定的时间，和固定日程「${clash.join('、')}」冲突`
-          : movedFrom && iv.start !== task.startMin
+          : earlyNote
+            ? earlyNote
+            : movedFrom && iv.start !== task.startMin
             ? `原定 ${String(Math.floor((task.startMin as number) / 60)).padStart(2, '0')}:${String((task.startMin as number) % 60).padStart(2, '0')}，和「${movedFrom}」撞了，顺延到这里`
             : undefined,
       });
