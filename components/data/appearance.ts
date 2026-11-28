@@ -2,6 +2,8 @@
  * 外观设置：皮肤、背景图、透明度、界面缩放、侧边栏收起。
  * 存在本机（@myplan_appearance / @myplan_wallpaper），改了马上生效，数据备份会一起导出。
  */
+import { useEffect, useState } from 'react';
+
 import { loadJSON, saveJSON } from '@/app/utils/planning';
 
 export const APPEARANCE_KEY = '@myplan_appearance';
@@ -142,4 +144,25 @@ export async function saveWallpaper(dataUrl: string | null): Promise<void> {
 export function desktopBridge(): { setOpacity?: (v: number) => void } | null {
   if (typeof window === 'undefined') return null;
   return ((window as unknown as { myplanDesktop?: { setOpacity?: (v: number) => void } }).myplanDesktop ?? null);
+}
+
+/**
+ * 卡片现在该有多不透明（卡片不透明度 ×（桌面玻璃窗口时）窗口不透明度），跟着外观设置实时变。
+ * 给自己固定颜色、又要跟着整体变透明的卡片用。
+ */
+export function useCardAlpha(): number {
+  const calc = () => {
+    const a = readAppearanceSync();
+    const glass = !!(desktopBridge() as { glass?: boolean } | null)?.glass;
+    return a.cardOpacity * (glass ? a.windowOpacity : 1);
+  };
+  const [v, setV] = useState(calc);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const on = () => setV(calc());
+    window.addEventListener(APPEARANCE_EVENT, on);
+    return () => window.removeEventListener(APPEARANCE_EVENT, on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return v;
 }
