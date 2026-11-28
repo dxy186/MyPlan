@@ -27,6 +27,7 @@ import {
   saveJSON,
   slotLabel,
   speedFactor,
+  toDateStr,
   todayStr,
   weekdayOf,
 } from '@/app/utils/planning';
@@ -153,7 +154,61 @@ export function effectiveSpeed(state: Pick<PlanState, 'timeLogs' | 'goals' | 'se
   return speedFactor(state.timeLogs, allTasks(state.goals).map(r => r.task));
 }
 
+/** 低于这个分算「精力偏低」，高于 HIGH 算「状态很好」 */
+export const ENERGY_LOW = 4.5;
+export const ENERGY_HIGH = 7.5;
+
+/** 今天最近一次精力打卡（5 小时内的才算「现在的状态」） */
+export function energyNow(logs: EnergyLog[], now = new Date()): EnergyLog | undefined {
+  const today = toDateStr(now);
+  return logs
+    .filter(l => l.date === today && now.getTime() - new Date(l.createdAt).getTime() < 5 * 3600 * 1000)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+/**
+ * 精力偏低时今天要往后挪的高耗能任务：没定死今天几点做、截止不是今天的。
+ * （截止就是今天的留着，但排程会尽量把它放到之后精力回来的时候）
+ */
+export function lowEnergyDeferrals(state: PlanState, now = new Date()): PlanTask[] {
+  const e = energyNow(state.energyLogs, now);
+  if (!e || e.score > ENERGY_LOW) return [];
+  const today = toDateStr(now);
+  return allTasks(state.goals)
+    .map(r => r.task)
+    .filter(
+      t =>
+        !t.done &&
+        !t.split &&
+        t.energyCost === 'high' &&
+        !(t.startMin !== undefined && t.notBefore === today) &&
+        (!t.due || t.due > today) &&
+        (!t.notBefore || t.notBefore <= today)
+    );
+}
+
+/** 打完精力卡后：重新排程，并返回一句给用户看的说明（精力一般时返回空字符串） */
+export async function afterEnergyLogged(): Promise<string> {
+  const st = await loadPlanState();
+  await commitState(st);
+  const e = energyNow(st.energyLogs);
+  if (!e) return '';
+  if (e.score <= ENERGY_LOW) {
+    const moved = lowEnergyDeferrals(st);
+    return moved.length
+      ? `🔋 精力偏低（${e.score} 分）：今天剩下的 ${moved.length} 个费脑的任务（${moved
+          .slice(0, 3)
+          .map(t => `「${t.title}」`)
+          .join('、')}${moved.length > 3 ? ' 等' : ''}）先挪到明天以后，今天只排轻松的。截止就是今天的照常留着。缓过来了再打一次卡，就会排回来。`
+      : `🔋 精力偏低（${e.score} 分）：今天剩下的时间只排轻松的事，费脑的往后放。`;
+  }
+  if (e.score >= ENERGY_HIGH) return `⚡ 状态不错（${e.score} 分）：费脑的任务会优先排在接下来这段时间，趁现在先做难的。`;
+  return '';
+}
+
 export function replan(state: PlanState, now = new Date()): ScheduleResult {
+  const deferIds = new Set(lowEnergyDeferrals(state, now).map(t => t.id));
+  const tomorrowStr = addDays(toDateStr(now), 1);
   const spent = spentByTask(state.timeLogs);
   const sf = effectiveSpeed(state);
   // 习惯档案：某类任务比平均更容易低估 / 高估时，单独再校准一下（手动设了系数就完全按手动的来）
@@ -182,6 +237,8 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
           startMin: r.task.startMin ?? (isFirst && nb === ps ? p.startMin : undefined),
         };
       })(),
+      // 刚打卡精力偏低：今天不排难的，挪到明天以后（这是临时的，精力回来或者过了今天就恢复）
+      ...(deferIds.has(r.task.id) ? { notBefore: tomorrowStr } : {}),
       // 已经做过一部分的任务，只排剩下的（至少留 15 分钟收尾）
       estimateMin: Math.max(
         15,
@@ -193,6 +250,7 @@ export function replan(state: PlanState, now = new Date()): ScheduleResult {
     startDate: todayStr(),
     notBeforeMin: nowMinuteRounded(now),
     speedFactor: sf,
+    todayEnergy: energyNow(state.energyLogs, now)?.score,
   });
 }
 
@@ -952,6 +1010,13 @@ export function buildContext(
   if (habits) lines.push(habits);
   const gold = goldenSlots(predictCurve(state.energyLogs, today)).map(slotLabel);
   if (gold.length) lines.push(`精力最好的时段：${gold.join('、')}`);
+  {
+    const en = energyNow(state.energyLogs, now);
+    if (en)
+      lines.push(
+        `此刻精力：${en.score} 分（${minutesToHM(new Date(en.createdAt).getHours() * 60 + new Date(en.createdAt).getMinutes())} 刚打卡）${en.score <= ENERGY_LOW ? '——偏低，今天别排费脑的，安排和建议都要轻一点' : en.score >= ENERGY_HIGH ? '——状态很好，可以先做难的' : ''}`
+      );
+  }
 
   lines.push('（以下是此刻的真实数据：用户可能在日历 / 任务页手动增删改过，和对话历史对不上时以这里为准）');
   lines.push('', '## 未完成任务（id | 任务 | 所属目标 | 预估分钟 | 已投入分钟 | 耗能 | 截止 | 其他）');
