@@ -945,6 +945,8 @@ export function buildContext(
   lines.push(`速率系数：${sf}（实际耗时 ≈ 预估 × ${sf}，${state.settings?.speedOverride ? '用户手动设定' : '来自历史时间记录'}）`);
   {
     const rd = state.settings?.restDayWeekday;
+    const se = state.settings;
+    if (se) lines.push(`作息：每天 ${minutesToHM(se.dayStartMin)} 到 ${minutesToHM(se.dayEndMin)} 之间安排任务；一次最多专注 ${se.maxFocusMin} 分钟，块之间休息 ${se.breakMin} 分钟（超过的系统会自动切块）。startTime 不要早于 ${minutesToHM(se.dayStartMin)}，任务要在 ${minutesToHM(se.dayEndMin)} 前结束；用户明确要更早 / 更晚的除外。`);
     if (rd !== null && rd !== undefined) lines.push(`缓冲日：每${WEEKDAY_CN[rd]}（自动排程这天不排任务；用户明确要在这天做的照常写这天的 date，最好带 startTime）`);
   }
   if (habits) lines.push(habits);
