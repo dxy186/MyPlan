@@ -57,7 +57,7 @@ export function categoryFactors(logs: TimeLog[], goals: Goal[], minSamples = 3):
     const ids = new Set(ts.map(t => t.id));
     const catLogs = logs.filter(l => l.taskId && ids.has(l.taskId));
     const samples = speedSamples(catLogs, ts).length;
-    if (samples >= minSamples) out.push({ category, factor: speedFactor(catLogs, ts), samples });
+    if (samples >= minSamples) out.push({ category, factor: speedFactor(catLogs, ts, 1), samples });
   }
   return out.sort((a, b) => b.factor - a.factor);
 }
