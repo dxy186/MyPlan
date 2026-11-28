@@ -437,6 +437,8 @@ function CalendarMain({ onProgress }: { onProgress?: (p: { done: number; total: 
     const manual = items.length > 0 && manualDays.has(items[0].date) && items.every(i => i.order !== undefined);
     return items.slice().sort((a, b) => {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      // DDL 永远排在普通事项上面（重要日子另外显示在最上面）
+      if (!!a.ddl !== !!b.ddl) return a.ddl ? -1 : 1;
       if (manual) return (a.order ?? 0) - (b.order ?? 0);
       return timeKey(a).localeCompare(timeKey(b)) || (a.order ?? 0) - (b.order ?? 0);
     });
