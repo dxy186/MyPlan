@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 import { AiFormatError, ChatMessage, callChatJSON, extractReplyLoosely, getAiConfig, lastJSONRaw } from '@/app/utils/ai';
-import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, todayStr } from '@/app/utils/planning';
+import { EnergyCost, KEYS, PlanTask, TaskWindow, addDays, loadJSON, minutesToHM, toDateStr, todayStr } from '@/app/utils/planning';
 import { ScheduleItem, ScheduleResult } from '@/app/utils/scheduler';
 
 import {
@@ -45,7 +45,8 @@ import { EnergyQuick, EveningCard, MissedCard, MorningCard, NowNextCard } from '
 import { takePendingAsk } from './ask-bridge';
 import { DATA_CHANGED_EVENT, openBreakdown } from './breakdown';
 import { parseDdlLine } from '@/components/data/quick-parse';
-import RichText from './RichText';
+import ChatThread, { ChatMsg } from './ChatThread';
+import { appendDiaryText } from '@/components/data/diary';
 import { chatPersonaPrompt, loadPersona } from './coach';
 import { startTaskTimer } from './gap';
 import HabitsCard from './HabitsCard';
@@ -68,14 +69,7 @@ export const ASSISTANT_HISTORY_KEY = '@myplan_assistant_history';
 export const FOCUS_ASSISTANT_EVENT = 'myplan:focus-assistant';
 
 /** proposal：这条回复带的调整方案后来有没有被确认 */
-type Msg = {
-  role: 'user' | 'assistant';
-  content: string;
-  at: string;
-  proposal?: 'pending' | 'applied' | 'dismissed';
-  /** AI 回复没法正常显示时留下的原文（排查问题用，不显示） */
-  raw?: string;
-};
+type Msg = ChatMsg;
 
 /** 把还没确认的方案标记为某个状态 */
 function markPending(h: Msg[], to: 'applied' | 'dismissed'): Msg[] {
@@ -90,7 +84,9 @@ function historyForAi(h: Msg[]) {
     content:
       m.role === 'assistant' && m.proposal && m.proposal !== 'applied'
         ? `${m.content}\n（系统注：这个方案用户没有确认，没有生效，当前数据里没有这些改动。）`
-        : m.content,
+        : m.quote
+          ? `${m.content}\n（引用了之前的这段：${m.quote.text}）`
+          : m.content,
   }));
 }
 type Proposal = { reply: string; actions: AssistantAction[]; changes: AppliedChange[]; enabled: boolean[] };
@@ -285,6 +281,13 @@ function DayTimeline({
   );
 }
 
+/** 聊天记录全存，但设个上限：最多 3000 条、约 1.5 MB（太旧的先删） */
+function capHistory(h: Msg[]): Msg[] {
+  let out = h.slice(-3000);
+  while (out.length > 50 && JSON.stringify(out).length > 1_500_000) out = out.slice(Math.ceil(out.length / 10));
+  return out;
+}
+
 /** 输入框上方的提问示例：让人知道除了加任务，还能找 AI 商量事情 */
 const IDEAS = [
   '假期有 4 天，想玩游戏、写点作业、练琴，还想出去玩，帮我规划一下',
@@ -452,10 +455,19 @@ export default function AssistantScreen() {
   }, []);
 
   const saveHistory = (h: Msg[]) => {
-    const trimmed = h.slice(-30);
+    const trimmed = capHistory(h);
     setHistory(trimmed);
     void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(trimmed));
   };
+  /** 复盘、空档建议这类卡片往对话里加一句 */
+  const appendNote = (text: string) =>
+    setHistory(prev => {
+      const h = capHistory([...prev, { role: 'assistant' as const, content: text, at: new Date().toISOString() }]);
+      void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(h));
+      return h;
+    });
+  // 引用之前的一条消息
+  const [quote, setQuote] = useState<Msg | null>(null);
 
   // 预览：只应用勾选的操作，算出新排程
   const preview = useMemo(() => {
@@ -517,9 +529,20 @@ export default function AssistantScreen() {
     if (!text || loading || !state) return;
     setError('');
     setInput('');
-    const userMsg: Msg = { role: 'user', content: pics.length ? `🖼️ [${pics.length} 张图片] ${text}` : text, at: new Date().toISOString() };
+    const q = raw === undefined ? quote : null;
+    const userMsg: Msg = {
+      role: 'user',
+      content: pics.length ? `🖼️ [${pics.length} 张图片] ${text}` : text,
+      at: new Date().toISOString(),
+      ...(q ? { quote: { at: q.at, text: q.content.replace(/\s+/g, ' ').slice(0, 120) } } : {}),
+    };
+    if (q) setQuote(null);
+    // 引用的原文整段发给 AI（历史里只留一小段）
+    const quoteNote = q
+      ? `\n\n（我引用了${q.role === 'assistant' ? '你' : '我'}在 ${q.at.slice(0, 10)} 说的这段，请以它为依据来做我这次说的事，比如把细化后的任务放进这个安排里对应的时间段：\n【引用开始】\n${q.content.slice(0, 4000)}\n【引用结束】）`
+      : '';
     // # 开头 = DDL：有日期就直接记上，不用等 AI（日历「问 AI」带过来的「关于 某天 这天：#…」用那天）
-    if (!pics.length && (await addDdlLocally(text, userMsg))) return;
+    if (!pics.length && !q && (await addDdlLocally(text, userMsg))) return;
     if (pics.length) setImages([]);
     // 发新消息时，上一个还没点「应用」的方案不丢：把它勾选的操作并进这次的新方案里
     const carried = proposal ? proposal.actions.filter((_, i) => proposal.enabled[i] && proposal.changes[i]?.ok) : [];
@@ -551,11 +574,11 @@ export default function AssistantScreen() {
           ? {
               role: 'user',
               content: [
-                { type: 'text', text: `${text}\n\n${IMAGE_PROMPT}${pendingNote}` },
+                { type: 'text', text: `${text}${quoteNote}\n\n${IMAGE_PROMPT}${pendingNote}` },
                 ...pics.map(p => ({ type: 'image_url' as const, image_url: { url: p.dataUrl } })),
               ],
             }
-          : { role: 'user', content: text + pendingNote },
+          : { role: 'user', content: text + quoteNote + pendingNote },
       ];
       const aiOpts = pics.length ? visionOpts(cfg.visionModel) : undefined;
       let result = normalizeAiResult(await callChatJSON<unknown>(msgs, aiOpts));
@@ -760,7 +783,6 @@ export default function AssistantScreen() {
 
   const today = todayStr();
   const shown = preview?.schedule ?? schedule;
-  const recent = history.slice(-8);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
@@ -789,13 +811,7 @@ export default function AssistantScreen() {
             setState(s);
             setSchedule(sch);
           }}
-          onNote={text =>
-            setHistory(prev => {
-              const h = [...prev, { role: 'assistant' as const, content: text, at: new Date().toISOString() }].slice(-30);
-              void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(h));
-              return h;
-            })
-          }
+          onNote={appendNote}
         />
       )}
       {!proposal && (
@@ -898,7 +914,17 @@ export default function AssistantScreen() {
             ))}
           </View>
         )}
-        {!input.trim() && images.length === 0 && !loading && (
+        {quote && (
+          <View style={styles.quoteBar}>
+            <Text style={styles.quoteBarText} numberOfLines={2}>
+              ↪ 引用{quote.role === 'assistant' ? ' AI ' : '我'}的话：{quote.content.replace(/\s+/g, ' ').slice(0, 120)}
+            </Text>
+            <TouchableOpacity onPress={() => setQuote(null)}>
+              <Text style={styles.quoteBarX}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {!quote && !input.trim() && images.length === 0 && !loading && (
           <View style={styles.ideaRow}>
             <Text style={styles.ideaLabel}>也可以这样问：</Text>
             {IDEAS.map(q => (
@@ -959,13 +985,7 @@ export default function AssistantScreen() {
             setState(s);
             setSchedule(sch);
           }}
-          onNote={text =>
-            setHistory(prev => {
-              const h = [...prev, { role: 'assistant' as const, content: text, at: new Date().toISOString() }].slice(-30);
-              void AsyncStorage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify(h));
-              return h;
-            })
-          }
+          onNote={appendNote}
         />
       )}
 
@@ -976,20 +996,21 @@ export default function AssistantScreen() {
       ) : null}
 
       {/* 对话 */}
-      {recent.length > 0 && (
-        <View style={styles.thread}>
-          {recent.map((m, i) => (
-            <View key={i} style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAi]}>
-              {m.role === 'user' ? (
-                <Text style={styles.bubbleUserText}>{m.content}</Text>
-              ) : (
-                <RichText text={m.content} style={styles.bubbleAiText} />
-              )}
-            </View>
-          ))}
-          {loading && <Text style={styles.muted}>正在结合你的任务进度思考…</Text>}
-        </View>
-      )}
+      <ChatThread
+        history={history}
+        loading={loading}
+        onQuote={m => {
+          setQuote(m);
+          setTimeout(() => window.dispatchEvent(new Event(FOCUS_ASSISTANT_EVENT)), 30);
+        }}
+        onDiary={async m => {
+          const d = new Date(m.at);
+          const day = isNaN(d.getTime()) ? todayStr() : toDateStr(d);
+          await appendDiaryText(day, m.content);
+          return `📔 已记进 ${day.slice(5)} 的日记（复盘 → 今日记录 → 日记簿）`;
+        }}
+        onClear={() => saveHistory([])}
+      />
 
       {/* 超时跟进 */}
       {overruns.length > 0 && !proposal && (
@@ -1092,6 +1113,9 @@ export default function AssistantScreen() {
 }
 
 const styles = StyleSheet.create({
+  quoteBar: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#F1F6FD', borderLeftWidth: 3, borderLeftColor: '#64B5F6', borderRadius: 6, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8 },
+  quoteBarText: { flex: 1, fontSize: 12, color: '#546E7A', lineHeight: 17 },
+  quoteBarX: { fontSize: 13, color: '#90A4AE', paddingHorizontal: 4 },
   ideaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 },
   ideaLabel: { fontSize: 12, color: '#90A4AE' },
   ideaChip: { borderWidth: 1, borderColor: '#D6E0EE', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#F7F9FC' },
