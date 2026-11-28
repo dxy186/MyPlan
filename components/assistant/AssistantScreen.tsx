@@ -770,7 +770,7 @@ export default function AssistantScreen() {
       }
       if (carried.length && fresh2.length) reply += `\n（上一个还没应用的 ${carried.length} 项也一起放进了这个方案。）`;
       // AI 自己写了这句就不再重复加
-      reply = reply.replace(/\n*👉?\s*点下面的「应用」后才会生效。?/g, '').trimEnd();
+      reply = reply.replace(/^[ \t]*👉?[ \t]*点下面的「应用」后才会生效。?[ \t]*$/gm, '').trimEnd();
       if (actions.length) reply += '\n👉 点下面的「应用」后才会生效。';
       saveHistory([
         ...h1,
