@@ -90,6 +90,9 @@ export default function RootLayout() {
 
   // 桌面版没有系统标题栏：顶上留一条能拖动窗口的区域，右上角按钮颜色跟着背景深浅
   const frameless = !!(desktopBridge() as { frameless?: boolean } | null)?.frameless;
+  // 桌面版「玻璃窗口」：窗口不透明度 < 100% 时，只把各层背景按比例变透明，文字始终 100% 不透明
+  const glass = !!(desktopBridge() as { glass?: boolean } | null)?.glass;
+  const winA = glass ? ap.windowOpacity : 1;
   useEffect(() => {
     const d = desktopBridge() as { setTitleBar?: (o: { symbolColor: string }) => void } | null;
     const darkBg = skin.dark || (!!wallpaper && (ap.wallpaperDim >= 0.3 || ap.contentOpacity <= 0.5));
@@ -104,19 +107,19 @@ export default function RootLayout() {
   // 缩放、深色、卡片透明：写成一段 CSS 挂到页面上
   const [cardCss, setCardCss] = useState('');
   useEffect(() => {
-    if (ap.cardOpacity >= 1) {
+    if (ap.cardOpacity * winA >= 1) {
       setCardCss('');
       return;
     }
     // 新页面打开时会生成新的样式类：切页后和每隔几秒补一次
-    const run = () => setCardCss(cardOverrideCss(ap.cardOpacity));
+    const run = () => setCardCss(cardOverrideCss(ap.cardOpacity * winA));
     const t0 = setTimeout(run, 60);
     const iv = setInterval(run, 3000);
     return () => {
       clearTimeout(t0);
       clearInterval(iv);
     };
-  }, [ap.cardOpacity, activeKey]);
+  }, [ap.cardOpacity, activeKey, winA]);
   const css = useMemo(() => {
     const z = ap.zoom;
     const lines = [
@@ -126,9 +129,11 @@ export default function RootLayout() {
         ? `#myplan-content{filter:invert(0.92) hue-rotate(180deg)}#myplan-content img,#myplan-content video,#myplan-content canvas,#myplan-content [style*="background-image"]{filter:invert(1) hue-rotate(180deg)}`
         : '',
       cardCss,
+      // 玻璃窗口：页面最外层不画底色，让桌面透出来
+      glass ? 'html,body,#root{background:transparent!important}' : '',
     ];
     return lines.filter(Boolean).join('\n');
-  }, [ap.zoom, ap.skin, cardCss]);
+  }, [ap.zoom, ap.skin, cardCss, glass]);
   useEffect(() => {
     if (typeof document === 'undefined') return;
     let el = document.getElementById('myplan-appearance-css') as HTMLStyleElement | null;
@@ -206,12 +211,12 @@ export default function RootLayout() {
   };
 
   // 内容区底色：有背景图时按「背景透出」调成半透明
-  const contentBg = wallpaper ? hexAlpha(skin.content, ap.contentOpacity) : skin.content;
+  const contentBg = hexAlpha(skin.content, (wallpaper ? ap.contentOpacity : 1) * winA);
 
   return (
     <View nativeID="myplan-root" style={styles.container}>
       {wallpaper ? (
-        <View pointerEvents="none" style={styles.wallLayer}>
+        <View pointerEvents="none" style={[styles.wallLayer, winA < 1 && { opacity: winA }]}>
           <View
             style={[
               StyleSheet.absoluteFill,
@@ -228,6 +233,26 @@ export default function RootLayout() {
         </View>
       ) : null}
       {frameless ? <View nativeID="myplan-drag" style={styles.dragBar} /> : null}
+      {glass ? (
+        <View style={styles.winBtns}>
+          {(
+            [
+              ['min', '—'],
+              ['max', '☐'],
+              ['close', '✕'],
+            ] as const
+          ).map(([a, t]) => (
+            <TouchableOpacity
+              key={a}
+              style={[styles.winBtn, a === 'close' && styles.winBtnClose]}
+              onPress={() => (desktopBridge() as { win?: (x: string) => void } | null)?.win?.(a)}
+              accessibilityLabel={a === 'min' ? '最小化' : a === 'max' ? '最大化 / 还原' : '关闭'}
+            >
+              <Text style={[styles.winBtnText, { color: skin.dark || (wallpaper && ap.wallpaperDim >= 0.3) ? '#fff' : '#37474F' }]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
       <ReminderService />
       <BreakdownHost />
       <CelebrationHost />
@@ -236,7 +261,7 @@ export default function RootLayout() {
         style={[
           styles.sidebar,
           collapsed && styles.sidebarCollapsed,
-          { backgroundColor: wallpaper ? hexAlpha(skin.sidebar, Math.max(0.55, ap.contentOpacity)) : skin.sidebar },
+          { backgroundColor: hexAlpha(skin.sidebar, (wallpaper ? Math.max(0.55, ap.contentOpacity) : 1) * winA) },
           skin.border ? { borderRightWidth: 1, borderRightColor: skin.border } : null,
         ]}
       >
@@ -294,6 +319,10 @@ const styles = StyleSheet.create({
   },
   sidebarCollapsed: { width: 68, paddingHorizontal: 8 },
   // 右边留出 150px 给系统的 最小化 / 最大化 / 关闭 按钮
+  winBtns: { position: 'absolute', top: 0, right: 0, flexDirection: 'row', zIndex: 60 },
+  winBtn: { width: 46, height: 30, alignItems: 'center', justifyContent: 'center' },
+  winBtnClose: {},
+  winBtnText: { fontSize: 13 },
   dragBar: { position: 'absolute', top: 0, left: 0, right: 150, height: 30, zIndex: 50 },
   wallLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' },
   logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 },
