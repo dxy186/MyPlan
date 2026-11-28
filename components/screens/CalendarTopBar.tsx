@@ -16,7 +16,7 @@ function fmt(sec: number) {
   return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 }
 
-export default function CalendarTopBar() {
+export default function CalendarTopBar({ right }: { right?: React.ReactNode } = {}) {
   const [schedule, setSchedule] = useState<ScheduleResult | null>(null);
   const [timer, setTimer] = useState<GapTimer | null>(null);
   const [ask, setAsk] = useState<{ taskId: string; title: string; minutes: number } | null>(null);
@@ -95,6 +95,7 @@ export default function CalendarTopBar() {
         <TouchableOpacity style={styles.btn} disabled={busy} onPress={finish}>
           <Text style={styles.btnText}>■ 这段做完了</Text>
         </TouchableOpacity>
+        {right}
       </View>
     );
   }
@@ -134,6 +135,7 @@ export default function CalendarTopBar() {
         )}
         {next ? <Text style={styles.meta}>　｜　下一项：{next.title} · {fmtWhen(next)}</Text> : null}
       </Text>
+      {right}
     </View>
   );
 }
