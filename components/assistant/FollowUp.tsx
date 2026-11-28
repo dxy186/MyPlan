@@ -38,6 +38,7 @@ import { AssistantAction, PlanState, applyActions, celebrate, commitState, loadP
 import { computeStreak } from '@/components/data/streak';
 import { dailyComment, loadPersona, personaLabel } from './coach';
 import { setDiarySummary } from '@/components/data/diary';
+import { useCardAlpha } from '@/components/data/appearance';
 
 const TYPE_ICON: Record<string, string> = { task: '📝', fixed: '📌', play: '🎮', chore: '🧹' };
 
@@ -253,6 +254,7 @@ export function EveningCard({
   onChanged: (s: PlanState, sch: ScheduleResult) => void;
   onNote: (t: string) => void;
 }) {
+  const cardAlpha = useCardAlpha();
   const [review, setReview] = useState<DailyReview | null | undefined>(undefined);
   const [plan, setPlan] = useState<DailyPlan | null>(null);
   const [settings, setSettings] = useState<ReminderSettings | null>(null);
@@ -297,7 +299,7 @@ export function EveningCard({
   if (review !== null) {
     if (!forced) return null;
     return (
-      <View ref={cardRef} style={styles.eveningCard}>
+      <View ref={cardRef} style={[styles.eveningCard, { backgroundColor: `rgba(232,224,248,${cardAlpha})` }]}>
         <Text style={styles.cardTitle}>🌙 今天已经复盘过了</Text>
         <Text style={styles.muted}>
           完成 {review.items.filter(x => x.status === 'done').length}/{review.items.length} 项。{review.note ? `\n${review.note}` : ''}
@@ -378,7 +380,7 @@ export function EveningCard({
   };
 
   return (
-    <View ref={cardRef} style={styles.eveningCard}>
+    <View ref={cardRef} style={[styles.eveningCard, { backgroundColor: `rgba(232,224,248,${cardAlpha})` }]}>
       <Text style={styles.cardTitle}>🌙 1 分钟复盘今天</Text>
       {items.length === 0 && <Text style={styles.muted}>今天没有排进计划的任务。直接点「完成复盘」打个卡，AI 也会给今天写一句点评。</Text>}
       {items.map(({ task, todayMin }) => {
@@ -461,7 +463,8 @@ const styles = StyleSheet.create({
   morningCard: { backgroundColor: '#FFFBEA', borderRadius: 12, borderWidth: 1, borderColor: '#FFE082', padding: 14, marginBottom: 14, maxWidth: 820 },
   planRow: { fontSize: 14, color: '#333', marginBottom: 3, fontVariant: ['tabular-nums'] },
   planMeta: { fontSize: 12, color: '#999' },
-  eveningCard: { backgroundColor: '#F3F0FA', borderRadius: 12, borderWidth: 1, borderColor: '#D1C4E9', padding: 14, marginBottom: 14, maxWidth: 820 },
+  // 底色不写在这里：在组件里按「卡片不透明度」算成半透明的淡紫色（写在这里会被统一的卡片透明规则改掉）
+  eveningCard: { borderRadius: 12, borderWidth: 1, borderColor: '#C9B8EA', padding: 14, marginBottom: 14, maxWidth: 820 },
   reviewRow: { marginBottom: 10 },
   reviewTitle: { fontSize: 15, fontWeight: '600', color: '#1a1a2e', marginBottom: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
