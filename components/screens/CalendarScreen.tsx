@@ -158,7 +158,7 @@ function CalendarMain({ onProgress }: { onProgress?: (p: { done: number; total: 
         const pr = page.getBoundingClientRect();
         const padB = parseFloat(getComputedStyle(page).paddingBottom) || 0;
         const topNoScroll = outer.getBoundingClientRect().top + page.scrollTop;
-        availH.current = Math.max(200, pr.bottom - padB - topNoScroll - 6);
+        availH.current = Math.max(200, pr.bottom - padB - topNoScroll - 2);
       } else availH.current = outer.getBoundingClientRect().height;
       calH.current = inner.getBoundingClientRect().height;
       fitCells();

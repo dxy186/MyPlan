@@ -333,7 +333,7 @@ export default function RootLayout() {
           );
         })}
       </View>
-      <View nativeID="myplan-content" style={[styles.content, { backgroundColor: contentBg }, width < 700 && { padding: 16 }]}>
+      <View nativeID="myplan-content" style={[styles.content, { backgroundColor: contentBg }, width < 700 && { padding: 16 }, activeKey === 'calendar' && width >= 700 && { paddingHorizontal: 12, paddingBottom: 8 }]}>
         <ErrorBoundary key={activeKey} name={activeKey}>
           {renderPage()}
         </ErrorBoundary>
