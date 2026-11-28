@@ -1024,6 +1024,7 @@ export default function AssistantScreen() {
           return `📔 已记进 ${day.slice(5)} 的日记（复盘 → 今日记录 → 日记簿）`;
         }}
         onClear={() => saveHistory([])}
+        onDelete={m => saveHistory(history.filter(x => !(x.at === m.at && x.role === m.role && x.content === m.content)))}
       />
 
       {/* 超时跟进 */}
