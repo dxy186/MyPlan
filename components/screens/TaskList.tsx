@@ -783,7 +783,22 @@ export default function TaskList() {
               (() => {
                 const shown = new Set(tasks.map(t => t.id));
                 const kidsOf = (id: string) => tasks.filter(t => t.parentId === id);
-                const tops = tasks.filter(t => !t.parentId || !shown.has(t.parentId));
+                // 先截止的排前面；没截止日的按最早排到哪天；做完的放最后
+                const firstDay = (t: PlanTask) =>
+                  [scheduledOn.get(t.id), ...tasks.filter(k => k.parentId === t.id).map(k => scheduledOn.get(k.id))]
+                    .filter(Boolean)
+                    .sort()[0] ?? '9999';
+                const tops = tasks
+                  .filter(t => !t.parentId || !shown.has(t.parentId))
+                  .map((t, i) => ({ t, i }))
+                  .sort(
+                    (a, b) =>
+                      Number(!!a.t.done) - Number(!!b.t.done) ||
+                      (a.t.due || '9999').localeCompare(b.t.due || '9999') ||
+                      firstDay(a.t).localeCompare(firstDay(b.t)) ||
+                      a.i - b.i
+                  )
+                  .map(x => x.t);
                 const allInGoal = goal.milestones.flatMap(m => m.tasks);
                 const effQuad = (t: PlanTask) =>
                   t.quadrant ?? (t.parentId ? allInGoal.find(p => p.id === t.parentId)?.quadrant : undefined) ?? goal.quadrant;
