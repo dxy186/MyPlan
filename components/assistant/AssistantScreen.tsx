@@ -510,7 +510,9 @@ export default function AssistantScreen() {
   };
 
   const send = async (raw?: string) => {
-    const pics = raw === undefined ? images : [];
+    // 只发有效的图片（防止空的 data URL 让 AI 报 Unsupported image_url format）
+    const pics = raw === undefined ? images.filter(im => /^data:image\/[\w.+-]+;base64,/.test(im.dataUrl)) : [];
+    if (raw === undefined && images.length > pics.length) setError(`有 ${images.length - pics.length} 张图片没读出来，已经跳过；可以重新截图再发。`);
     const text = (raw ?? input).trim() || (pics.length ? '这是任务要求的截图，帮我拆成子任务并排进日程。' : '');
     if (!text || loading || !state) return;
     setError('');

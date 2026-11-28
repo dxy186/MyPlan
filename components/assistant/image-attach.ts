@@ -17,9 +17,16 @@ export function fileToImage(file: File, maxSide = MAX_SIDE, quality = 0.88): Pro
       const img = new Image();
       img.onerror = () => reject(new Error('图片格式不支持'));
       img.onload = () => {
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
+        const iw = img.naturalWidth || img.width;
+        const ih = img.naturalHeight || img.height;
+        // 读不出尺寸（少数软件复制出来的图）：原图本身是常见格式就直接用，否则报错
+        if (!iw || !ih) {
+          if (/^data:image\/(png|jpe?g|webp|gif)/i.test(src)) return resolve({ id: Math.random().toString(36).slice(2), dataUrl: src, name: file.name || '截图' });
+          return reject(new Error('这张图片读不出来，换成截图（PNG / JPG）再试试'));
+        }
+        const scale = Math.min(1, maxSide / Math.max(iw, ih));
+        const w = Math.max(1, Math.round(iw * scale));
+        const h = Math.max(1, Math.round(ih * scale));
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
@@ -28,7 +35,11 @@ export function fileToImage(file: File, maxSide = MAX_SIDE, quality = 0.88): Pro
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        resolve({ id: Math.random().toString(36).slice(2), dataUrl: canvas.toDataURL('image/jpeg', quality), name: file.name || '截图' });
+        const out = canvas.toDataURL('image/jpeg', quality);
+        // 画布导出失败时浏览器会给一个空的 "data:,"，AI 会报「Unsupported image_url format」
+        const ok = out.startsWith('data:image/') && out.length > 100;
+        if (!ok && !/^data:image\/(png|jpe?g|webp|gif)/i.test(src)) return reject(new Error('这张图片处理失败，换成截图（PNG / JPG）再试试'));
+        resolve({ id: Math.random().toString(36).slice(2), dataUrl: ok ? out : src, name: file.name || '截图' });
       };
       img.src = src;
     };
