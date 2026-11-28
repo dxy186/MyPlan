@@ -360,26 +360,39 @@ export function generateSchedule(
     if (task.startMin === undefined || !d || !days.includes(d)) continue;
     if (d === start && opts.notBeforeMin !== undefined && task.startMin < opts.notBeforeMin) continue;
     const dur = Math.max(5, task.exact ? task.estimateMin : calibrateEstimate(task.estimateMin, opts.speedFactor));
-    const iv: Interval = { start: task.startMin, end: Math.min(24 * 60, task.startMin + dur) };
+    // 定了几点的任务也遵守「一次最多专注」：超过就从那个时间起切成几块，中间按「块之间休息」隔开
     const wd = weekdayOf(d);
-    const clash = fixed
-      .filter(e => (e.date ? e.date === d : e.weekday === wd) && e.startMin < iv.end && e.endMin > iv.start)
-      .map(e => `${e.title} ${fmtRange(e.startMin, e.endMin)}`);
-    gapsFor(d);
-    dayGaps.set(d, subtract(gapsFor(d), [iv]));
-    items.push({
-      id: `task-${task.id}-${iv.start}-${iv.end}-${d}`,
-      date: d,
-      startMin: iv.start,
-      endMin: iv.end,
-      title: task.title,
-      type: 'task',
-      taskId: task.id,
-      energyCost: task.energyCost,
-      slotKey: slotKeyOfMinute(iv.start),
-      quadrant: task.quadrant,
-      note: clash.length ? `你定的时间，和固定日程「${clash.join('、')}」冲突` : undefined,
-    });
+    let at = task.startMin;
+    let left = dur;
+    let lastIv: Interval | null = null;
+    while (left > 0 && at < 24 * 60) {
+      const per = opts.maxFocusMin > 0 && left > opts.maxFocusMin ? Math.ceil(left / Math.ceil(left / opts.maxFocusMin)) : left;
+      const len = Math.min(left, per, 24 * 60 - at);
+      const iv: Interval = { start: at, end: at + len };
+      const clash = fixed
+        .filter(e => (e.date ? e.date === d : e.weekday === wd) && e.startMin < iv.end && e.endMin > iv.start)
+        .map(e => `${e.title} ${fmtRange(e.startMin, e.endMin)}`);
+      gapsFor(d);
+      dayGaps.set(d, subtract(gapsFor(d), [{ start: iv.start, end: Math.min(24 * 60, iv.end + (left > len ? opts.breakMin : 0)) }]));
+      items.push({
+        id: `task-${task.id}-${iv.start}-${iv.end}-${d}`,
+        date: d,
+        startMin: iv.start,
+        endMin: iv.end,
+        title: task.title,
+        type: 'task',
+        taskId: task.id,
+        energyCost: task.energyCost,
+        slotKey: slotKeyOfMinute(iv.start),
+        quadrant: task.quadrant,
+        note: clash.length ? `你定的时间，和固定日程「${clash.join('、')}」冲突` : undefined,
+      });
+      lastIv = iv;
+      left -= len;
+      at = iv.end + opts.breakMin;
+    }
+    if (!lastIv) continue;
+    const iv = lastIv;
     lastEnd.set(task.id, { date: d, end: iv.end });
     pinnedIds.add(task.id);
   }
@@ -420,7 +433,9 @@ export function generateSchedule(
     }
     let guard = 0;
     while (remaining > 0 && guard++ < 64) {
-      const box = remaining > opts.maxFocusMin ? opts.maxFocusMin : Math.max(opts.minFocusMin, remaining);
+      // 每块最多「一次最多专注」；最后剩一点就只排剩下的（不会因为「一次至少」把时间凑长）
+      // 超过上限就平均切（100 分钟切成 50+50，而不是 90+10）
+      const box = remaining > opts.maxFocusMin ? Math.ceil(remaining / Math.ceil(remaining / opts.maxFocusMin)) : remaining;
       let best: { day: string; gap: Interval; from: number; score: number } | null = null;
       for (const d of pass.list) {
         // 依赖还没做完的日子不能排
