@@ -125,6 +125,13 @@ export default function RootLayout() {
     const lines = [
       `#myplan-root{zoom:${z};height:calc(100vh / ${z})!important}`,
       '#myplan-drag{-webkit-app-region:drag;app-region:drag}',
+      // 滚动条：去掉白色底槽和上下箭头，只留一根细细的半透明滑块，跟卡片一样透
+      '::-webkit-scrollbar{width:8px;height:8px;background:transparent}',
+      '::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}',
+      '::-webkit-scrollbar-button{display:none;width:0;height:0}',
+      `::-webkit-scrollbar-thumb{background:${skin.dark ? 'rgba(255,255,255,0.28)' : 'rgba(96,110,135,0.32)'};border-radius:8px}`,
+      `::-webkit-scrollbar-thumb:hover{background:${skin.dark ? 'rgba(255,255,255,0.45)' : 'rgba(96,110,135,0.55)'}}`,
+      '@-moz-document url-prefix(){*{scrollbar-width:thin;scrollbar-color:rgba(96,110,135,0.4) transparent}}',
       ap.skin === 'dark'
         ? `#myplan-content{filter:invert(0.92) hue-rotate(180deg)}#myplan-content img,#myplan-content video,#myplan-content canvas,#myplan-content [style*="background-image"]{filter:invert(1) hue-rotate(180deg)}`
         : '',
@@ -133,7 +140,7 @@ export default function RootLayout() {
       glass ? 'html,body,#root{background:transparent!important}' : '',
     ];
     return lines.filter(Boolean).join('\n');
-  }, [ap.zoom, ap.skin, cardCss, glass]);
+  }, [ap.zoom, ap.skin, cardCss, glass, skin.dark]);
   useEffect(() => {
     if (typeof document === 'undefined') return;
     let el = document.getElementById('myplan-appearance-css') as HTMLStyleElement | null;
