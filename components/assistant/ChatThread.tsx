@@ -3,6 +3,7 @@
  * 「看更早的」一天一天往前加载；可以搜索、清空；右键（手机上长按）一条消息：引用 / 记进日记 / 复制。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { toDateStr, todayStr } from '@/app/utils/planning';
@@ -220,7 +221,10 @@ export default function ChatThread({
 
       {!!toast && <Text style={styles.toast}>{toast}</Text>}
 
-      {menu && (
+      {menu &&
+        typeof document !== 'undefined' &&
+        // 菜单挂到页面最外层：外面的滚动容器带 transform，放在里面会跑偏、被裁掉，看起来就像没反应
+        createPortal(
         <>
           <TouchableOpacity activeOpacity={1} style={styles.overlay} onPress={() => setMenu(null)} />
           <View style={[styles.menu, { left: menu.x, top: menu.y }]}>
@@ -261,8 +265,9 @@ export default function ChatThread({
               <Text style={styles.menuText}>📋 复制</Text>
             </TouchableOpacity>
           </View>
-        </>
-      )}
+        </>,
+          document.body
+        )}
     </View>
   );
 }
