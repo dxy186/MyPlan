@@ -157,6 +157,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     const onKey = (e: KeyboardEvent) => {
+      // 桌面版：窗口全屏 / 最大化时按 Esc 缩回原来大小（有弹窗开着时 Esc 只关弹窗）
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const modalOpen = !!document.querySelector('[aria-modal="true"], [role="dialog"]');
+        const d = desktopBridge() as { win?: (x: string) => void } | null;
+        if (!modalOpen && d?.win) d.win('restore');
+      }
       // Ctrl+Shift+0：透明度调太低看不清时，一键恢复不透明
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === '0' || e.key === ')')) {
         e.preventDefault();
