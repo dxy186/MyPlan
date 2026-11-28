@@ -382,6 +382,29 @@ export function cleanSteps(raw: unknown): SplitStep[] {
   return out;
 }
 
+/** 新加的任务和已有的没做完的任务很像（多半是同一件事又排了一遍）：在方案里提醒一句 */
+export function similarNote(goals: Goal[], selfId: string, title: string): string {
+  const norm = (x: string) => x.replace(/[\s，,。.、:：（）()【】「」"'!！?？~～—–-]/g, '').toLowerCase();
+  const a = norm(title);
+  if (a.length < 3) return '';
+  const grams = new Set<string>();
+  for (let i = 0; i + 3 <= a.length; i++) grams.add(a.slice(i, i + 3));
+  const hit = allTasks(goals)
+    .map(r => r.task)
+    .filter(t => t.id !== selfId && !t.done && !t.parentId)
+    .find(t => {
+      const b = norm(t.title);
+      let n = 0;
+      // 共同的三字片段：两段以上算像；英文 / 数字片段（比如 ppt、es pre）更有区分度，一段就算
+      for (let i = 0; i + 3 <= b.length; i++) {
+        const g = b.slice(i, i + 3);
+        if (grams.has(g)) n += /^[a-z0-9]{3}$/.test(g) ? 2 : 1;
+      }
+      return n >= 2 || (b.length >= 3 && (a.includes(b) || b.includes(a)));
+    });
+  return hit ? `　⚠️ 已经有个很像的「${hit.title}」还没做完，是不是重复了？不需要的话到任务页删掉旧的` : '';
+}
+
 /** 手动定了几点的任务和固定日程冲突时的提示（以任务为主，照样排在那个时间） */
 export function clashNote(fixed: FixedEvent[], t: PlanTask): string {
   if (t.startMin === undefined || !t.notBefore) return '';
@@ -487,7 +510,7 @@ export function applyActions(
             ...(a.exact ? { exact: true } : {}),
           };
           goal.milestones[0].tasks.push(task);
-          changes.push({ action: a, ok: true, summary: `➕ 新增「${title}」（${describeTask(task)}）→ ${goal.title}${clashNote(next.fixed, task)}` });
+          changes.push({ action: a, ok: true, summary: `➕ 新增「${title}」（${describeTask(task)}）→ ${goal.title}${clashNote(next.fixed, task)}${similarNote(next.goals, task.id, title)}` });
           break;
         }
         case 'update_task': {
@@ -557,7 +580,7 @@ export function applyActions(
           changes.push({
             action: a,
             ok: true,
-            summary: `🧩 把「${parent.title}」拆成 ${steps.length} 步：${steps.map(x => `${x.date.slice(5)} ${x.title}（${x.estimateMin} 分）`).join('；')}`,
+            summary: `🧩 把「${parent.title}」拆成 ${steps.length} 步${a.taskId ? '' : similarNote(next.goals, parent.id, parent.title)}：${steps.map(x => `${x.date.slice(5)} ${x.title}（${x.estimateMin} 分）`).join('；')}`,
           });
           break;
         }
@@ -946,6 +969,14 @@ export function buildContext(
       );
     });
   if (pending.length === 0) lines.push('（没有）');
+  // 已经拆过的父任务也列出来（带 id）：重新安排同一件事时，删掉父任务就能把整组旧安排一起删掉
+  const parents = refs.filter(r => !r.task.done && r.task.split);
+  if (parents.length) {
+    lines.push('', '## 已拆成子任务的父任务（id | 任务 | 截止 | 子任务数）——删父任务会连子任务一起删');
+    parents.slice(0, 30).forEach(({ task: t }) =>
+      lines.push(`${t.id} | ${t.title} | ${t.due || '无'} | ${refs.filter(r => r.task.parentId === t.id && !r.task.done).length}`)
+    );
+  }
 
   // 用户写过 WOOP 的目标：安排、拆分、给建议时要参考他自己写的结果、障碍和应对计划
   const woops = state.goals.filter(g => g.woop && !g.completedAt);
@@ -1076,4 +1107,6 @@ reply 的写法：
    - 用户自己说了要多久、或说了速度（「一小时学 5 页」「大概 6 个小时」），按他的说法算出每步的 estimateMin，并在 add_task / split_task 里加 "exact": true——系统就不会再按速率系数缩放；
    - 你在 reply 里写了「周日上午 / 下午两段」「周一 13:00–15:30」这样的安排，actions 里的每一步就要写成同样的 date，能写出几点的就写 startTime，让日历和你说的一模一样；一段话里同一天的上午、下午两段要拆成两步，分别写 startTime；
    - 「当前数据」里写了缓冲日（默认周日）：缓冲日系统默认不排任务，但用户明确要在那天做的，照常写那天的 date（最好带 startTime），系统会排进去。
-21. 用户消息里带「【引用开始】…【引用结束】」：那是他从聊天记录里选中的一段（多半是你之前给的方案）。这次要做的事以这段内容为依据：比如他说「细化一下」「把具体作业放进去」，就照引用里的日期和时间段来安排（规则 19、20），引用里写了几点到几点就用那个 startTime；引用的方案如果当时没点「应用」，当前数据里没有，就照引用的内容新加。`;
+21. 用户消息里带「【引用开始】…【引用结束】」：那是他从聊天记录里选中的一段（多半是你之前给的方案）。这次要做的事以这段内容为依据：比如他说「细化一下」「把具体作业放进去」，就照引用里的日期和时间段来安排（规则 19、20），引用里写了几点到几点就用那个 startTime；引用的方案如果当时没点「应用」，当前数据里没有，就照引用的内容新加。
+22. 重新安排同一件事（用户又说了一遍、或说「重新排」「按 XX 再排一次」，比如又说「49 页 PPT 帮我排」），而当前数据里已经有这件事的任务 / 父任务：先用 delete_task 删掉旧的（拆过的就删父任务 id，子任务会一起删），再加新的；reply 里说一句「把原来那组 XX 换成了新的安排」。不要新旧两套同时留着。
+23. 安排具体时间前，先看「当前排程」和「未完成任务」里那天已经定了几点的事（比如 15:00 练琴、固定日程）：新任务的 startTime 不要和它们重叠，排在它们前后；实在要换，就在 reply 里说清楚。reply 里写的时间段要和 actions 的 startTime、estimateMin 对得上（比如 08:00–10:30 就是 150 分钟，不能写 3 小时）。`;
