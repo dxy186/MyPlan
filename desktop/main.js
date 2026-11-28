@@ -359,8 +359,8 @@ function buildTrayMenu() {
       label: '窗口恢复不透明',
       click: () => {
         if (!mainWindow) return;
-        mainWindow.setOpacity(1);
         showWindow();
+        // 页面会把设置改回 100%，并通知这里换回普通窗口
         mainWindow.webContents.send('myplan:opacity-reset');
       },
     },
@@ -398,18 +398,29 @@ function createTray() {
   tray.on('double-click', showWindow);
 }
 
-async function createWindow() {
+// 「玻璃模式」：窗口不透明度调到 100% 以下时，用真正透明的窗口，只让背景变透明、字保持清楚
+// （以前用 setOpacity，会把字也一起变淡）。透明窗口不能拖边框改大小，用页面上的按钮最大化 / 还原。
+let glassOn = loadDesktopSettings().glass === true;
+let savedBounds = null;
+
+async function createWindow(bounds) {
+  const glass = glassOn;
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 750,
+    width: (bounds && bounds.width) || 1100,
+    height: (bounds && bounds.height) || 750,
+    ...(bounds ? { x: bounds.x, y: bounds.y } : {}),
     minWidth: 800,
     minHeight: 600,
     autoHideMenuBar: true,
     title: 'MyPlan',
-    // 去掉系统白色标题栏，背景铺满整个窗口；右上角的 最小化 / 最大化 / 关闭 按钮叠在页面上
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: '#37474F', height: 32 },
-    backgroundColor: '#F8FAFC',
+    ...(glass
+      ? { frame: false, transparent: true, resizable: false, backgroundColor: '#00000000' }
+      : {
+          // 去掉系统白色标题栏，背景铺满整个窗口；右上角的 最小化 / 最大化 / 关闭 按钮叠在页面上
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#00000000', symbolColor: '#37474F', height: 32 },
+          backgroundColor: '#F8FAFC',
+        }),
     icon: hasCustomIcon() ? customIconPng() : path.join(__dirname, 'dist', 'favicon.ico'),
     show: !START_HIDDEN,
     webPreferences: {
@@ -437,8 +448,10 @@ async function createWindow() {
     }
   });
 
-  const distPath = path.join(__dirname, 'dist');
-  staticServer = await createStaticServer(distPath, BASE_PATH);
+  if (!staticServer) {
+    const distPath = path.join(__dirname, 'dist');
+    staticServer = await createStaticServer(distPath, BASE_PATH);
+  }
   const { port } = staticServer.address();
 
   mainWindow.loadURL(`http://127.0.0.1:${port}${BASE_PATH}/`);
@@ -449,8 +462,10 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  const thisWin = mainWindow;
+  thisWin.on('closed', () => {
+    // 换玻璃 / 普通窗口时旧窗口会被关掉，不能把新窗口清掉
+    if (mainWindow === thisWin) mainWindow = null;
   });
 }
 
@@ -567,9 +582,44 @@ if (!app.requestSingleInstanceLock()) {
     return { shortcuts: setShortcutIcons(exePath()) };
   });
   ipcMain.handle('myplan:has-icon', async () => hasCustomIcon());
+  // 页面告诉我们窗口不透明度：低于 100% 换成玻璃窗口（透明度由页面自己画，字不变淡），100% 换回普通窗口
   ipcMain.on('myplan:set-opacity', (_e, v) => {
     const n = Number(v);
-    if (mainWindow && Number.isFinite(n)) mainWindow.setOpacity(Math.min(1, Math.max(0.05, n)));
+    if (!Number.isFinite(n)) return;
+    const want = n < 0.999;
+    if (want === glassOn || !mainWindow) return;
+    glassOn = want;
+    saveDesktopSettings({ ...loadDesktopSettings(), glass: want });
+    const old = mainWindow;
+    const b = old.isMaximized() ? savedBounds || old.getNormalBounds() : old.getBounds();
+    const visible = old.isVisible();
+    old.removeAllListeners('close');
+    createWindow(b).then(() => {
+      if (visible) mainWindow.show();
+      old.destroy();
+    });
+  });
+  ipcMain.on('myplan:glass', (e) => {
+    e.returnValue = glassOn;
+  });
+  // 玻璃窗口没有系统按钮：页面上的 — □ × 调这里
+  ipcMain.on('myplan:win', (_e, a) => {
+    if (!mainWindow) return;
+    if (a === 'min') mainWindow.minimize();
+    else if (a === 'close') mainWindow.close();
+    else if (a === 'max') {
+      const { screen } = require('electron');
+      const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+      const cur = mainWindow.getBounds();
+      const full = cur.x === area.x && cur.y === area.y && cur.width === area.width && cur.height === area.height;
+      if (full && savedBounds) {
+        mainWindow.setBounds(savedBounds);
+        savedBounds = null;
+      } else {
+        savedBounds = cur;
+        mainWindow.setBounds(area);
+      }
+    }
   });
   ipcMain.on('myplan:version', (e) => {
     e.returnValue = app.getVersion();

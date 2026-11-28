@@ -15,6 +15,14 @@ contextBridge.exposeInMainWorld('myplanDesktop', {
   resetIcon: () => ipcRenderer.invoke('myplan:reset-icon'),
   hasIcon: () => ipcRenderer.invoke('myplan:has-icon'),
   setOpacity: v => ipcRenderer.send('myplan:set-opacity', v),
+  glass: (() => {
+    try {
+      return ipcRenderer.sendSync('myplan:glass') === true;
+    } catch {
+      return false;
+    }
+  })(),
+  win: a => ipcRenderer.send('myplan:win', a),
   getWindowPrefs: () => ipcRenderer.invoke('myplan:desktop-get'),
   setWindowPrefs: patch => ipcRenderer.invoke('myplan:desktop-set', patch),
   quit: () => ipcRenderer.send('myplan:quit'),
