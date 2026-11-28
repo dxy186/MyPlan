@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { getHolidayData } from '@/app/utils/holidays';
-import { solarToLunar } from '@/app/utils/lunar';
+import { festivalsOn, lunarLine } from '@/app/utils/festivals';
 import { applyActions, commitState, loadPlanState, saveState, setTaskDone } from '@/components/assistant/plan-store';
 import {
   CalendarItem,
@@ -647,11 +647,10 @@ function CalendarMain() {
     const dayNumberColor = isCurrentMonth ? '#111' : '#ccc';
     const lunarColor = isCurrentMonth ? '#888' : '#ccc';
 
-    let lunarStr = '';
-    try {
-      const lunar = solarToLunar(dateStr);
-      if (lunar && lunar.day) lunarStr = lunar.day;
-    } catch {}
+    // 农历那一行：有节日 / 节气就显示它（节日红字、节气绿字），初一显示月份，其余显示农历日
+    const ll = lunarLine(dateStr);
+    const lunarStr = ll.text;
+    const lunarSpecialColor = ll.special === 'term' ? '#2E7D32' : ll.special ? '#E53935' : null;
 
     const holidayType = holidayMap[dateStr];
     const showHoliday = holidayType === 'holiday';
@@ -691,7 +690,16 @@ function CalendarMain() {
           {showHoliday && <Text style={styles.holidayBadge}>休</Text>}
           {showWorkday && <Text style={styles.workdayBadge}>班</Text>}
         </View>
-        <Text style={[styles.lunarText, { color: lunarColor }]}>{lunarStr}</Text>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.lunarText,
+            { color: lunarSpecialColor ?? lunarColor },
+            lunarSpecialColor ? { fontWeight: '600', opacity: isCurrentMonth ? 1 : 0.5 } : null,
+          ]}
+        >
+          {lunarStr}
+        </Text>
         <View style={{ width: '100%', alignItems: 'flex-start' }}>
           {eventLines.map(ev => (
             <Text
@@ -875,7 +883,17 @@ function CalendarMain() {
             <TouchableWithoutFeedback onPress={() => {}}>
               <View style={styles.noteCard}>
                 <View style={styles.noteHeader}>
-                  <Text style={styles.noteDate}>{currentEditDate}</Text>
+                  <Text style={styles.noteDate}>
+                    {currentEditDate}
+                    {currentEditDate && festivalsOn(currentEditDate).length ? (
+                      <Text style={{ fontSize: 14, color: '#E53935', fontWeight: '600' }}>
+                        {'  '}
+                        {festivalsOn(currentEditDate)
+                          .map(f => f.name)
+                          .join(' · ')}
+                      </Text>
+                    ) : null}
+                  </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     {/* 背景色调色盘按钮 */}
                     <TouchableOpacity onPress={() => {
