@@ -61,6 +61,8 @@ export type ScheduleResult = {
 };
 
 export type ScheduleOptions = {
+  /** 今天刚打的精力分（几小时内）：今天剩下的时段按它来，不按历史平均 */
+  todayEnergy?: number;
   startDate: string; // YYYY-MM-DD
   days: number;
   dayStartMin: number; // 例如 8*60
@@ -272,6 +274,12 @@ export function generateSchedule(
   const dayGaps = new Map<string, Interval[]>();
   const curves = new Map<string, Record<EnergySlotKey, number>>();
   for (const d of days) curves.set(d, predictCurve(logs, d));
+  // 今天刚打了精力卡：今天各时段都按此刻的状态算（低精力就别塞难的，高精力就趁现在）
+  if (opts.todayEnergy !== undefined && curves.has(start)) {
+    const c = { ...(curves.get(start) as Record<EnergySlotKey, number>) };
+    for (const k of Object.keys(c) as EnergySlotKey[]) c[k] = opts.todayEnergy;
+    curves.set(start, c);
+  }
 
   const restBusy = new Map<string, Interval[]>();
 

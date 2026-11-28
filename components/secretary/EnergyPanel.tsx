@@ -43,6 +43,7 @@ import { DIARY_CHANGED_EVENT, loadDiaryDays, saveDiaryDays } from '@/components/
 import { ganzhiOf } from '@/app/utils/ganzhi';
 
 import DiaryCalendar from './DiaryCalendar';
+import { afterEnergyLogged } from '@/components/assistant/plan-store';
 
 const WEEK_CN = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -116,6 +117,7 @@ export default function EnergyPanel() {
   const [cognitive, setCognitive] = useState(6);
   const [meaning, setMeaning] = useState(6);
   const [note, setNote] = useState('');
+  const [adaptMsg, setAdaptMsg] = useState('');
 
   // —— 日记 ——
   const [diary, setDiary] = useState<DiaryEntry[]>([]);
@@ -193,6 +195,8 @@ export default function EnergyPanel() {
     const next = [...logs.filter(l => !(l.date === date && l.slot === slot)), log];
     await persist(next);
     setNote('');
+    // 打的是今天的卡：按此刻精力重新排今天，并告诉用户挪了什么
+    if (date === today) setAdaptMsg(await afterEnergyLogged());
   };
 
   const handleDelete = async (id: string) => {
@@ -330,6 +334,7 @@ export default function EnergyPanel() {
         <TouchableOpacity style={styles.primaryBtn} onPress={handleSave}>
           <Text style={styles.primaryBtnText}>保存打卡</Text>
         </TouchableOpacity>
+        {adaptMsg ? <Text style={{ fontSize: 13, color: '#5E35B1', marginTop: 8, lineHeight: 19 }}>{adaptMsg}</Text> : null}
       </View>
 
       {/* 今日日记 */}

@@ -811,6 +811,7 @@ export default function AssistantScreen() {
         <EnergyQuick
           state={state}
           onLogged={logs => setState({ ...state, energyLogs: logs })}
+          onNote={appendNote}
         />
       )}
       <MissedCard missed={missed} onClose={() => setMissed([])} />

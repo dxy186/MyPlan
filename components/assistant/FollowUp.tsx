@@ -34,7 +34,7 @@ import {
   todayTasks,
 } from './followup';
 import { slotOfMinute } from './gap';
-import { AssistantAction, PlanState, applyActions, celebrate, commitState, loadPlanState } from './plan-store';
+import { AssistantAction, PlanState, afterEnergyLogged, applyActions, celebrate, commitState, loadPlanState } from './plan-store';
 import { computeStreak } from '@/components/data/streak';
 import { dailyComment, loadPersona, personaLabel } from './coach';
 import { setDiarySummary } from '@/components/data/diary';
@@ -136,7 +136,7 @@ const QUICK_ENERGY: { label: string; score: number }[] = [
   { label: '💪 精力好', score: 8.5 },
 ];
 
-export function EnergyQuick({ state, onLogged }: { state: PlanState; onLogged: (logs: EnergyLog[]) => void }) {
+export function EnergyQuick({ state, onLogged, onNote }: { state: PlanState; onLogged: (logs: EnergyLog[]) => void; onNote?: (t: string) => void }) {
   const recent = state.energyLogs.some(l => Date.now() - new Date(l.createdAt).getTime() < 3 * 3600 * 1000);
   if (recent) return null;
   const log = async (score: number) => {
@@ -157,6 +157,9 @@ export function EnergyQuick({ state, onLogged }: { state: PlanState; onLogged: (
     const next = [entry, ...state.energyLogs];
     await saveJSON(KEYS.energyLogs, next);
     onLogged(next);
+    // 按此刻的精力重新排今天：低就把难的往后挪，高就把难的往前提
+    const msg = await afterEnergyLogged();
+    if (msg) onNote?.(msg);
   };
   return (
     <View style={styles.energyRow}>
