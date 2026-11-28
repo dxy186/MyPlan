@@ -227,7 +227,7 @@ export function generateSchedule(
 
   const pending = tasks.filter(t => !t.done);
   const requiredMin = pending.reduce(
-    (s, t) => s + calibrateEstimate(t.estimateMin, opts.speedFactor),
+    (s, t) => s + (t.exact ? t.estimateMin : calibrateEstimate(t.estimateMin, opts.speedFactor)),
     0
   );
   const bufferMin = Math.round(requiredMin * opts.bufferRatio);
@@ -275,9 +275,13 @@ export function generateSchedule(
 
   const restBusy = new Map<string, Interval[]>();
 
+  // 缓冲日（默认周日）本来不排任务；但用户明确说了「那天做」的任务（开始日正好是这天），照样排进去，别的任务不进来
+  const isRestDay = (d: string) => opts.restDayWeekday !== undefined && weekdayOf(d) === opts.restDayWeekday;
+  const openRest = new Set(tasks.filter(t => t.notBefore && isRestDay(t.notBefore)).map(t => t.notBefore as string));
+
   const gapsFor = (d: string): Interval[] => {
     if (!dayGaps.has(d)) {
-      const isRest = opts.restDayWeekday !== undefined && weekdayOf(d) === opts.restDayWeekday;
+      const isRest = isRestDay(d) && !openRest.has(d);
       const extra = restBusy.get(d) ?? [];
       let gaps = findGaps(d, opts, fixed, extra, isRest);
       if (d === start && opts.notBeforeMin !== undefined) {
@@ -355,7 +359,7 @@ export function generateSchedule(
     const d = task.notBefore;
     if (task.startMin === undefined || !d || !days.includes(d)) continue;
     if (d === start && opts.notBeforeMin !== undefined && task.startMin < opts.notBeforeMin) continue;
-    const dur = Math.max(5, calibrateEstimate(task.estimateMin, opts.speedFactor));
+    const dur = Math.max(5, task.exact ? task.estimateMin : calibrateEstimate(task.estimateMin, opts.speedFactor));
     const iv: Interval = { start: task.startMin, end: Math.min(24 * 60, task.startMin + dur) };
     const wd = weekdayOf(d);
     const clash = fixed
@@ -382,7 +386,7 @@ export function generateSchedule(
   if (pinnedIds.size) ordered.splice(0, ordered.length, ...ordered.filter(t => !pinnedIds.has(t.id)));
 
   for (const task of ordered) {
-    let remaining = calibrateEstimate(task.estimateMin, opts.speedFactor);
+    let remaining = task.exact ? task.estimateMin : calibrateEstimate(task.estimateMin, opts.speedFactor);
     let depAfter: { date: string; end: number } | null = null;
     for (const d of task.deps) {
       const e = lastEnd.get(d);
@@ -421,6 +425,8 @@ export function generateSchedule(
       for (const d of pass.list) {
         // 依赖还没做完的日子不能排
         if (depAfter && diffDays(depAfter.date, d) < 0) continue;
+        // 缓冲日只给明确说了「那天做」的任务用
+        if (openRest.has(d) && task.notBefore !== d) continue;
         const depFloor = depAfter && depAfter.date === d ? depAfter.end + opts.breakMin : 0;
         // 用户指定了「那天几点开始」：那天不早于这个时间，并且优先正好从这个时间开始
         const timeFloor = task.startMin !== undefined && task.notBefore === d ? task.startMin : 0;

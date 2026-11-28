@@ -322,6 +322,8 @@ export type PlanTask = {
   id: string;
   title: string;
   estimateMin: number; // 预估耗时（分钟）
+  /** 时长是用户亲口说的（或按他说的速度算的）：排程不再乘速率系数 */
+  exact?: boolean;
   energyCost: EnergyCost; // 耗能等级
   due?: string; // 截止日期
   deps: string[]; // 前置依赖（PlanTask.id）
@@ -526,12 +528,14 @@ export function speedSamples(logs: TimeLog[], tasks?: PlanTask[]): number[] {
   return ratios.sort((a, b) => a - b);
 }
 
-export function speedFactor(logs: TimeLog[], tasks?: PlanTask[]): number {
+export function speedFactor(logs: TimeLog[], tasks?: PlanTask[], minSamples = 5): number {
   const ratios = speedSamples(logs, tasks);
-  if (ratios.length === 0) return 1;
-  const mid = Math.floor(ratios.length / 2);
-  const med = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
-  return Math.round(med * 100) / 100;
+  // 样本太少不校准；样本多了也限制在 0.6–2 倍之间（没计时就打勾、只计了一小段这类记录会把系数拉得离谱）
+  if (ratios.length === 0 || ratios.length < minSamples) return 1;
+  const sorted = [...ratios].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const med = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return Math.round(Math.min(2, Math.max(0.6, med)) * 100) / 100;
 }
 
 /** 用速率系数校准预估 */
